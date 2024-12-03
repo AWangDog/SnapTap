@@ -2,7 +2,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QFileDialog, QSystemTra
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtGui import QPixmap, QResizeEvent, QStandardItemModel, QStandardItem, QIcon, QAction
 from PySide6.QtCore import Qt, QThread, Signal, QEvent
-import sys, shutil, os, configparser, re, json, keyboard, time
+import sys, shutil, os, configparser, re, json, keyboard, time, ctypes
 
     # 读取配置文件
 def readConfig():
@@ -26,10 +26,7 @@ def is_oneKey(s):
     if len(s) == 1:
         return True
     else:
-        if ',' in s:
-            return False
-        else:
-            return True
+        return s != "" and ',' not in s and '+' not in s
         
 def is_number(s):
     try:
@@ -45,6 +42,27 @@ def is_number(s):
         pass
     return False
 
+def is_normal(c):
+    return (is_number(c['wait'])
+        and is_oneKey(c['left'])
+        and is_oneKey(c['right'])
+        and is_oneKey(c['up'])
+        and is_oneKey(c['down']))
+    
+def is_temp(c):
+    return (c['wait'] == '' 
+            or c['left'] == ''
+            or c['right'] == ''
+            or c['up'] == ''
+            or c['down'] == ''
+            )
+    
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
 # 线程类
 class Worker(QThread):
     def __init__(self):
@@ -52,30 +70,21 @@ class Worker(QThread):
         self._running = True
 
     def run(self):
-        config = readConfig()
-        key = [config['left'], config['right'], config['down'], config['up']]
-        unkey = [config['right'], config['left'], config['up'], config['down']]
+        self.config = readConfig()
+        key = [self.config['left'], self.config['right'], self.config['down'], self.config['up']]
+        unkey = [self.config['right'], self.config['left'], self.config['up'], self.config['down']]
         last_key = [False, False, False, False]
-        
-        if (is_number(config['wait'])
-        and is_oneKey(config['left'])
-        and is_oneKey(config['right'])
-        and is_oneKey(config['up'])
-        and is_oneKey(config['down'])
-        ):
-            while self._running:
-                now = [keyboard.is_pressed(k) for k in key]
-                pressing = [((not a) and b) for a, b in zip(last_key, now)]
-                releaseing = [(a and (not b)) for a, b in zip(last_key, now)]
-                for i in range(4):
-                    if pressing[i] and keyboard.is_pressed(unkey[i]):
-                        keyboard.release(unkey[i])
-                    if releaseing[i] and keyboard.is_pressed(unkey[i]):
-                        keyboard.press(unkey[i])
-                last_key = [keyboard.is_pressed(k) for k in key]
-                time.sleep(float(config['wait']))
-        else:
-            QMessageBox.warning(None, "错误", "配置有误，请检查输入！")
+        while self._running:
+            now = [keyboard.is_pressed(k) for k in key]
+            pressing = [((not a) and b) for a, b in zip(last_key, now)]
+            releaseing = [(a and (not b)) for a, b in zip(last_key, now)]
+            for i in range(4):
+                if pressing[i] and keyboard.is_pressed(unkey[i]):
+                    keyboard.release(unkey[i])
+                if releaseing[i] and keyboard.is_pressed(unkey[i]):
+                    keyboard.press(unkey[i])
+            last_key = [keyboard.is_pressed(k) for k in key]
+            time.sleep(float(self.config['wait']))
 
     def stop(self):
         self._running = False
@@ -85,93 +94,127 @@ uiLoader = QUiLoader()
 # 主窗口类
 class Main(QMainWindow):
     def __init__(self):
-        try:
-            self.config = readConfig()
-        except:
-            self.config = {'wait' : 0.001, 'left' : 'a', 'right' : 'd', 'up' : 'w', 'down' :'s'}
-            writeConfig(self.config)
+        
         super().__init__()
         # 加载 ui 文件
-        self.ui = QUiLoader().load('data\\ui\\main.ui')
-        self.setCentralWidget(self.ui)
-        self.setWindowTitle("SnapTap")
-        self.setWindowIcon(QIcon("data\\ui\\icon.ico"))
+        try:
+            self.ui = QUiLoader().load('ui\\main.ui')
+            self.warning = QUiLoader().load('ui\\warning.ui')
+        except:
+            QMessageBox.critical(self, "错误", "加载 ui 文件失败！\n请重装软件或检查ui是否存在！")
+            sys.exit(1)
 
+        self.setCentralWidget(self.ui)
+        if is_admin():
+            self.setWindowTitle("SnapTap [管理员]")
+        else:
+            self.setWindowTitle("SnapTap [非管理员, 某些情况可能无法生效]")
+
+        self.warning.setWindowTitle("警告")
+        self.warning.setWindowFlags(self.windowFlags() & ~Qt.WindowCloseButtonHint & ~Qt.WindowMinMaxButtonsHint)
+        
+        try:
+            self.setWindowIcon(QIcon("ui\\icon.ico"))
+            self.warning.setWindowIcon(QIcon("ui\\warning.ico"))
+        except:
+            pass
+        
+        # 读取配置文件
+        try:
+            self.create_val(self.config)
+        except:
+            self.reset_config()
+            
         # 设置窗口大小
         self.setMaximumHeight(68)
         self.setMaximumWidth(583)
         self.setMinimumHeight(68)
         self.setMinimumWidth(280)
 
-        # 文本填充
-        self.create_val()
-        
-        self.ui.wait.textChanged.connect(self.saveConfig)
-        self.ui.left.keySequenceChanged.connect(self.saveConfig)
-        self.ui.right.keySequenceChanged.connect(self.saveConfig)
-        self.ui.up.keySequenceChanged.connect(self.saveConfig)
-        self.ui.down.keySequenceChanged.connect(self.saveConfig)
+        try:
+            # 设置事件
+            self.ui.wait.textChanged.connect(self.saveConfig)
+            self.ui.left.keySequenceChanged.connect(self.saveConfig)
+            self.ui.right.keySequenceChanged.connect(self.saveConfig)
+            self.ui.up.keySequenceChanged.connect(self.saveConfig)
+            self.ui.down.keySequenceChanged.connect(self.saveConfig)
 
-        # 按钮事件
-        self.ui.start.clicked.connect(self.toggle)
-        self.thread = Worker()
-        
-        # 托盘图标
-        self.tray_icon = QSystemTrayIcon(self)
-        self.tray_icon.setIcon(QIcon("data\\ui\\icon.ico"))
-        self.menu = QMenu()
-        self.start_action = QAction("启用", self)
-        self.show_action = QAction("隐藏", self)
-        self.exit_action = QAction("退出", self)
-        self.start_action.triggered.connect(self.toggle)
-        self.show_action.triggered.connect(self.show_toggle)
-        self.exit_action.triggered.connect(sys.exit)
-        self.menu.addAction(self.start_action)
-        self.menu.addAction(self.show_action)
-        self.menu.addAction(self.exit_action)
-        self.tray_icon.setContextMenu(self.menu)
-        self.tray_icon.activated.connect(self.on_tray_icon_activated)
-        self.tray_icon.show()
+            # 按钮事件
+            self.ui.start.clicked.connect(self.toggle)
+            self.thread = Worker()
+            
+            # 托盘图标
+            self.tray_icon = QSystemTrayIcon(self)
+            self.tray_icon.setIcon(QIcon("ui\\icon.ico"))
+            self.menu = QMenu()
+            self.start_action = QAction("启用", self)
+            self.show_action = QAction("隐藏", self)
+            self.exit_action = QAction("退出", self)
+            self.start_action.triggered.connect(self.toggle)
+            self.show_action.triggered.connect(self.show_toggle)
+            self.exit_action.triggered.connect(sys.exit)
+            self.menu.addAction(self.start_action)
+            self.menu.addAction(self.show_action)
+            self.menu.addAction(self.exit_action)
+            self.tray_icon.setContextMenu(self.menu)
+            self.tray_icon.activated.connect(self.on_tray_icon_activated)
+            self.tray_icon.show()
+            
+            # warning 事件
+            self.warning.sure.clicked.connect(self.warning_close)
+            self.warning.reset.clicked.connect(self.reset_config)
+        except:
+            QMessageBox.critical(self, "错误", "初始化失败！(ui文件损坏)\n请重装软件或检查ui文件！")
 
     def toggle(self):
         if self.thread.isRunning():
             self.thread.stop()
-            self.thread.wait()  # 等待线程结束
             self.ui.start.setText("启用")
             self.start_action.setText("启用")
         else:
+            self.create_val(readConfig())
             self.thread = Worker()
             self.thread.start()
             self.ui.start.setText("停用")
             self.start_action.setText("停用")
+            
+    def warning_close(self):
+        self.warning.hide()
+        self.ui.setDisabled(False)
+    
+    def reset_config(self):
+        self.warning_close()
+        self.config = {'wait' : 0.001, 'left' : 'a', 'right' : 'd', 'up' : 'w', 'down' :'s'}
+        writeConfig(self.config)
+        self.create_val(self.config)
 
     def saveConfig(self):
-        if (
-            is_number(self.ui.wait.text())
-            and is_oneKey(self.ui.left.keySequence().toString())
-            and is_oneKey(self.ui.right.keySequence().toString())
-            and is_oneKey(self.ui.up.keySequence().toString())
-            and is_oneKey(self.ui.down.keySequence().toString())
-        ):
-            self.config = {
-                'wait': self.ui.wait.text(),
-                'left': self.ui.left.keySequence().toString(),
-                'right': self.ui.right.keySequence().toString(),
-                'up': self.ui.up.keySequence().toString(),
-                'down': self.ui.down.keySequence().toString()
-            }
+        self.config = {
+            'wait': self.ui.wait.text(),
+            'left': self.ui.left.keySequence().toString(),
+            'right': self.ui.right.keySequence().toString(),
+            'up': self.ui.up.keySequence().toString(),
+            'down': self.ui.down.keySequence().toString()
+        }
+        if is_normal(self.config) and not is_temp(self.config):
             writeConfig(self.config)
-        else:
-            QMessageBox.warning(self, "错误", "配置有误，请检查输入！")
-            self.config = readConfig()
-            self.create_val()
+            if self.thread.isRunning():
+                self.thread.stop()
+                self.thread.wait()
+                self.thread = Worker()
+                self.thread.start()
+        elif not is_temp(self.config):
+            self.ui.setDisabled(True)
+            self.warning.show()
+            self.create_val(readConfig())
+
         
-    def create_val(self):
-        self.ui.wait.setText(str(self.config['wait']))
-        self.ui.left.setKeySequence(self.config['left'])
-        self.ui.right.setKeySequence(self.config['right'])
-        self.ui.up.setKeySequence(self.config['up'])
-        self.ui.down.setKeySequence(self.config['down'])
+    def create_val(self, config):
+        self.ui.wait.setText(str(config['wait']))
+        self.ui.left.setKeySequence(config['left'])
+        self.ui.right.setKeySequence(config['right'])
+        self.ui.up.setKeySequence(config['up'])
+        self.ui.down.setKeySequence(config['down'])
         
     def on_tray_icon_activated(self, reason):
         if reason == QSystemTrayIcon.Trigger:
@@ -184,11 +227,15 @@ class Main(QMainWindow):
         else:
             self.show()
             self.show_action.setText("隐藏")
+    
+    def closeEvent(self, event):
+        self.warning.close()
+        super().closeEvent(event)
+        
+    
             
 # 启动程序
 app = QApplication(sys.argv)
 main_window = Main()
 main_window.show()
 sys.exit(app.exec())
-# D:\Users\xujiy\AppData\Local\Programs\Python\Python312\Scripts\pyinstaller main.py --onefile --windowed --name SnapTap --icon=data/ui/icon.ico --hidden-import PySide6.QtXml
-# D:\Users\xujiy\AppData\Local\Programs\Python\Python312\Scripts\pyinstaller SnapTap.spec
