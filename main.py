@@ -4,76 +4,134 @@ from PySide6.QtGui import QPixmap, QResizeEvent, QStandardItemModel, QStandardIt
 from PySide6.QtCore import Qt, QThread, Signal, QEvent
 import sys, shutil, os, configparser, re, json, keyboard, time, ctypes
 
-    # 读取配置文件
-def readConfig():
-    config = configparser.ConfigParser()
-    config.read('config.ini')
-    wait = config['DEFAULT']['wait']
-    left = config['DEFAULT']['left']
-    right = config['DEFAULT']['right']
-    up = config['DEFAULT']['up']
-    down = config['DEFAULT']['down']
-    return {'wait' : wait, 'left' : left, 'right' : right, 'up' : up, 'down' : down}
 
-# 写入配置文件
-def writeConfig(config):
-    config_parser = configparser.ConfigParser()
-    config_parser['DEFAULT'] = config
-    with open('config.ini', 'w') as configfile:
-        config_parser.write(configfile)
-        
-def is_oneKey(s):
-    if len(s) == 1:
-        return True
-    else:
-        return s != "" and ',' not in s and '+' not in s
-        
-def is_number(s):
-    try:
-        float(s)
-        return True
-    except ValueError:
-        pass
-    try:
-        import unicodedata
-        unicodedata.numeric(s)
-        return True
-    except (TypeError, ValueError):
-        pass
-    return False
+class act_config():
+    """配置文件类函数
+    """
+    def readConfig(self) -> dict:
+        """读取配置文件
 
-def is_normal(c):
-    return (is_number(c['wait'])
-        and is_oneKey(c['left'])
-        and is_oneKey(c['right'])
-        and is_oneKey(c['up'])
-        and is_oneKey(c['down']))
+        Returns:
+            dict: 配置参数字典
+        """
+        config = configparser.ConfigParser()
+        config.read('config.ini')
+        return dict(config['DEFAULT'])
+
+    def writeConfig(self, config : dict) -> None:
+        """写入配置文件
+
+        Args:
+            config (dict): 配置参数字典
+        """
+        config_parser = configparser.ConfigParser()
+        config_parser['DEFAULT'] = config
+        with open('config.ini', 'w') as configfile:
+            config_parser.write(configfile)
     
-def is_temp(c):
-    return (c['wait'] == '' 
-            or c['left'] == ''
-            or c['right'] == ''
-            or c['up'] == ''
-            or c['down'] == ''
-            )
-    
-def is_admin():
-    try:
-        return ctypes.windll.shell32.IsUserAnAdmin()
-    except:
+class check():
+    """检查类函数
+    """
+    def is_oneKey(self, s : str) -> bool:
+        """按键检查
+
+        Args:
+            s (str): 输入按键
+
+        Returns:
+            bool: 是否只有一个按键
+        """
+        if len(s) == 1:
+            return True
+        else:
+            return s != "" and ',' not in s and '+' not in s
+            
+    def is_number(self, s : str) -> bool:
+        """数字检查
+
+        Args:
+            s (str): 输入数字
+
+        Returns:
+            bool: 是否是纯数字
+        """
+        try:
+            float(s)
+            return True
+        except ValueError:
+            pass
+        try:
+            import unicodedata
+            unicodedata.numeric(s)
+            return True
+        except (TypeError, ValueError):
+            pass
         return False
 
-# 线程类
+    def is_normal(self, c : dict) -> bool:
+        """配置类型检查
+
+        Args:
+            c (dict): 配置参数字典
+
+        Returns:
+            bool: 是否为可接受类型
+        """
+        return (self.is_number(c['wait'])
+            and self.is_oneKey(c['left'])
+            and self.is_oneKey(c['right'])
+            and self.is_oneKey(c['up'])
+            and self.is_oneKey(c['down']))
+        
+    def is_temp(self, c : dict) -> bool:
+        """临时值检查
+
+        Args:
+            c (dict): 配置参数字典
+
+        Returns:
+            bool: 是否为临时状态
+        """
+        return (c['wait'] == '' 
+                or c['left'] == ''
+                or c['right'] == ''
+                or c['up'] == ''
+                or c['down'] == ''
+                )
+        
+    def is_admin(self) -> bool:
+        """管理员检查
+
+        Returns:
+            bool: 是否为管理员运行
+        """
+        try:
+            return ctypes.windll.shell32.IsUserAnAdmin()
+        except:
+            return False
+
 class Worker(QThread):
+    """主要函数类
+
+    Args:
+        QThread (Qthread): QT多线程
+    """
     def __init__(self):
         super().__init__()
         self._running = True
 
     def run(self):
-        self.config = readConfig()
+        """主要实现逻辑函数
+        """
+        self.config = act_config().readConfig()
         key = [self.config['left'], self.config['right'], self.config['down'], self.config['up']]
         unkey = [self.config['right'], self.config['left'], self.config['up'], self.config['down']]
         last_key = [False, False, False, False]
+        self.config['wait'] = float(self.config['wait'])
+        if self.config['wait'] >= 1000:
+            self.config['wait'] = 1000
+        elif self.config['wait'] <= 0.01:
+            self.config['wait'] = 0.01
         while self._running:
             now = [keyboard.is_pressed(k) for k in key]
             pressing = [((not a) and b) for a, b in zip(last_key, now)]
@@ -84,9 +142,11 @@ class Worker(QThread):
                 if releaseing[i] and keyboard.is_pressed(unkey[i]):
                     keyboard.press(unkey[i])
             last_key = [keyboard.is_pressed(k) for k in key]
-            time.sleep(float(self.config['wait']))
+            time.sleep(self.config['wait'] / 1000)
 
     def stop(self):
+        """主要函数多线程停止函数
+        """
         self._running = False
 
 # uiLoader 实例化
@@ -125,7 +185,7 @@ class Main(QMainWindow):
             sys.exit(1)
 
         self.setCentralWidget(self.ui)
-        if is_admin():
+        if check().is_admin():
             self.setWindowTitle("SnapTap [管理员]")
         else:
             self.setWindowTitle("SnapTap [非管理员, 某些情况可能无法生效]")
@@ -139,11 +199,35 @@ class Main(QMainWindow):
         except:
             pass
         
+        # 托盘图标
+        self.tray_icon = QSystemTrayIcon(self)
+        self.tray_icon.setIcon(QIcon("ui\\icon.ico"))
+        self.menu = QMenu()
+        self.start_action = QAction("启用", self)
+        self.show_action = QAction("隐藏", self)
+        self.exit_action = QAction("退出", self)
+        self.start_action.triggered.connect(self.toggle)
+        self.show_action.triggered.connect(self.show_toggle)
+        self.exit_action.triggered.connect(self.exit)
+        self.menu.addAction(self.start_action)
+        self.menu.addAction(self.show_action)
+        self.menu.addAction(self.exit_action)
+        self.tray_icon.setContextMenu(self.menu)
+        self.tray_icon.activated.connect(self.on_tray_icon_activated)
+        self.tray_icon.show()
+        
         # 读取配置文件
-        try:
-            self.create_val(readConfig())
-        except:
+        self.config = act_config().readConfig()
+        if self.config == {}:
             self.reset_config()
+            self.config = act_config().readConfig()
+        self.write_val(self.config)
+        if float(self.config.get('version', '0') != '1.2'):
+            self.config['version'] = '1.2'
+        act_config().writeConfig(self.config)
+        if self.config.get('running', '0') == '0':
+            self.config['running'] = '1'
+        act_config().writeConfig(self.config)
             
         # 设置窗口大小
         self.setMaximumHeight(68)
@@ -162,27 +246,9 @@ class Main(QMainWindow):
         self.ui.start.clicked.connect(self.toggle)
         self.thread = Worker()
         
-        # 托盘图标
-        self.tray_icon = QSystemTrayIcon(self)
-        self.tray_icon.setIcon(QIcon("ui\\icon.ico"))
-        self.menu = QMenu()
-        self.start_action = QAction("启用", self)
-        self.show_action = QAction("隐藏", self)
-        self.exit_action = QAction("退出", self)
-        self.start_action.triggered.connect(self.toggle)
-        self.show_action.triggered.connect(self.show_toggle)
-        self.exit_action.triggered.connect(sys.exit)
-        self.menu.addAction(self.start_action)
-        self.menu.addAction(self.show_action)
-        self.menu.addAction(self.exit_action)
-        self.tray_icon.setContextMenu(self.menu)
-        self.tray_icon.activated.connect(self.on_tray_icon_activated)
-        self.tray_icon.show()
-        
         # warning 事件
         self.warning.sure.clicked.connect(self.warning_close)
         self.warning.reset.clicked.connect(self.reset_config)
-            
 
     def toggle(self):
         if self.thread.isRunning():
@@ -190,7 +256,7 @@ class Main(QMainWindow):
             self.ui.start.setText("启用")
             self.start_action.setText("启用")
         else:
-            self.create_val(readConfig())
+            self.write_val(act_config().readConfig())
             self.thread = Worker()
             self.thread.start()
             self.ui.start.setText("停用")
@@ -199,46 +265,69 @@ class Main(QMainWindow):
     def warning_close(self):
         self.warning.hide()
         self.ui.setDisabled(False)
+        self.menu.setDisabled(False)
     
     def reset_config(self):
         self.warning_close()
-        self.config = {'wait' : 0.001, 'left' : 'a', 'right' : 'd', 'up' : 'w', 'down' :'s'}
-        writeConfig(self.config)
-        self.create_val(self.config)
+        self.config = {'wait' : 0.1, 'left' : 'a', 'right' : 'd', 'up' : 'w', 'down' :'s', 'version' : '1.2', 'running' : '1'}
+        act_config().writeConfig(self.config)
+        self.write_val(self.config)
 
     def saveConfig(self):
-        self.config = {
-            'wait': self.ui.wait.text(),
-            'left': self.ui.left.keySequence().toString(),
-            'right': self.ui.right.keySequence().toString(),
-            'up': self.ui.up.keySequence().toString(),
-            'down': self.ui.down.keySequence().toString()
-        }
-        if is_normal(self.config) and not is_temp(self.config):
-            writeConfig(self.config)
+        for k, v in self.read_val().items():
+            self.config[k] = v
+        if check().is_normal(self.config) and not check().is_temp(self.config):
+            act_config().writeConfig(self.config)
             if self.thread.isRunning():
                 self.thread.stop()
                 self.thread.wait()
                 self.thread = Worker()
                 self.thread.start()
-        elif not is_temp(self.config):
+        elif not check().is_temp(self.config):
             self.ui.setDisabled(True)
+            self.menu.setDisabled(True)
             self.warning.show()
-            self.create_val(readConfig())
+            self.write_val(act_config().readConfig())
 
         
-    def create_val(self, config):
+    def write_val(self, config : dict):
+        """将配置参数字典写入窗口控件
+
+        Args:
+            config (dict): 配置参数字典
+        """
         self.ui.wait.setText(str(config['wait']))
         self.ui.left.setKeySequence(config['left'])
         self.ui.right.setKeySequence(config['right'])
         self.ui.up.setKeySequence(config['up'])
         self.ui.down.setKeySequence(config['down'])
         
+    def read_val(self) -> dict:
+        """从窗口控件读取配置参数字典
+
+        Returns:
+            dict: 配置参数字典
+        """
+        return {
+            'wait': self.ui.wait.text(),
+            'left': self.ui.left.keySequence().toString(),
+            'right': self.ui.right.keySequence().toString(),
+            'up': self.ui.up.keySequence().toString(),
+            'down': self.ui.down.keySequence().toString()
+        }
+        
     def on_tray_icon_activated(self, reason):
+        """左键单击托盘图标切换主窗口显示与隐藏
+
+        Args:
+            reason (reason): 托盘图标操作状态
+        """
         if reason == QSystemTrayIcon.Trigger:
             self.show_toggle()
                 
     def show_toggle(self):
+        """切换主窗口显示与隐藏
+        """
         if self.isVisible():
             self.hide()
             self.show_action.setText("显示")
@@ -247,8 +336,26 @@ class Main(QMainWindow):
             self.show_action.setText("隐藏")
     
     def closeEvent(self, event):
-        self.warning.close()
+        """覆写窗口关闭逻辑
+
+        Args:
+            event (event): event
+        """
+        self.exit(1)
         super().closeEvent(event)
+        
+    def close(self):
+        self.exit(1)
+        super().close()
+    
+    def exit(self, event = 0):
+        """关闭程序前的动作
+        """
+        self.warning.close()
+        self.config['running'] = 0
+        self.saveConfig()
+        if event == 0:
+            sys.exit()
         
     
             
