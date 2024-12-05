@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QApplication, QMessageBox, QFileDialog, QSystemTrayIcon, QMenu, QSizePolicy, QMainWindow, QWidget, QVBoxLayout, QLabel, QSplitter, QTabWidget, QTableView, QHeaderView, QPushButton
+from PySide6.QtWidgets import QApplication, QMessageBox, QLineEdit, QFileDialog, QKeySequenceEdit, QSystemTrayIcon, QMenu, QSizePolicy, QMainWindow, QWidget, QVBoxLayout, QLabel, QSplitter, QTabWidget, QTableView, QHeaderView, QPushButton
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtGui import QPixmap, QResizeEvent, QStandardItemModel, QStandardItem, QIcon, QAction
 from PySide6.QtCore import Qt, QThread, Signal, QEvent
@@ -104,6 +104,26 @@ class Main(QMainWindow):
             QMessageBox.critical(self, "错误", "加载 ui 文件失败！\n请重装软件或检查ui是否存在！")
             sys.exit(1)
 
+        err = False
+        try:
+            if not (type(self.ui.wait) == QLineEdit
+            and type(self.ui.left) == QKeySequenceEdit
+            and type(self.ui.right) == QKeySequenceEdit
+            and type(self.ui.up) == QKeySequenceEdit
+            and type(self.ui.down) == QKeySequenceEdit
+            and type(self.ui.start) == QPushButton
+            and type(self.warning.sure) == QPushButton
+            and type(self.warning.reset) == QPushButton
+            and type(self.warning.label) == QLabel
+            and type(self.ui.label) == QLabel
+            ):
+                err = True
+        except:
+            err = True
+        if err:
+            QMessageBox.critical(self, "错误", "初始化失败！(ui文件损坏)\n请重装软件或检查ui文件！")
+            sys.exit(1)
+
         self.setCentralWidget(self.ui)
         if is_admin():
             self.setWindowTitle("SnapTap [管理员]")
@@ -121,7 +141,7 @@ class Main(QMainWindow):
         
         # 读取配置文件
         try:
-            self.create_val(self.config)
+            self.create_val(readConfig())
         except:
             self.reset_config()
             
@@ -131,40 +151,38 @@ class Main(QMainWindow):
         self.setMinimumHeight(68)
         self.setMinimumWidth(280)
 
-        try:
-            # 设置事件
-            self.ui.wait.textChanged.connect(self.saveConfig)
-            self.ui.left.keySequenceChanged.connect(self.saveConfig)
-            self.ui.right.keySequenceChanged.connect(self.saveConfig)
-            self.ui.up.keySequenceChanged.connect(self.saveConfig)
-            self.ui.down.keySequenceChanged.connect(self.saveConfig)
+        # 设置事件
+        self.ui.wait.textChanged.connect(self.saveConfig)
+        self.ui.left.keySequenceChanged.connect(self.saveConfig)
+        self.ui.right.keySequenceChanged.connect(self.saveConfig)
+        self.ui.up.keySequenceChanged.connect(self.saveConfig)
+        self.ui.down.keySequenceChanged.connect(self.saveConfig)
 
-            # 按钮事件
-            self.ui.start.clicked.connect(self.toggle)
-            self.thread = Worker()
+        # 按钮事件
+        self.ui.start.clicked.connect(self.toggle)
+        self.thread = Worker()
+        
+        # 托盘图标
+        self.tray_icon = QSystemTrayIcon(self)
+        self.tray_icon.setIcon(QIcon("ui\\icon.ico"))
+        self.menu = QMenu()
+        self.start_action = QAction("启用", self)
+        self.show_action = QAction("隐藏", self)
+        self.exit_action = QAction("退出", self)
+        self.start_action.triggered.connect(self.toggle)
+        self.show_action.triggered.connect(self.show_toggle)
+        self.exit_action.triggered.connect(sys.exit)
+        self.menu.addAction(self.start_action)
+        self.menu.addAction(self.show_action)
+        self.menu.addAction(self.exit_action)
+        self.tray_icon.setContextMenu(self.menu)
+        self.tray_icon.activated.connect(self.on_tray_icon_activated)
+        self.tray_icon.show()
+        
+        # warning 事件
+        self.warning.sure.clicked.connect(self.warning_close)
+        self.warning.reset.clicked.connect(self.reset_config)
             
-            # 托盘图标
-            self.tray_icon = QSystemTrayIcon(self)
-            self.tray_icon.setIcon(QIcon("ui\\icon.ico"))
-            self.menu = QMenu()
-            self.start_action = QAction("启用", self)
-            self.show_action = QAction("隐藏", self)
-            self.exit_action = QAction("退出", self)
-            self.start_action.triggered.connect(self.toggle)
-            self.show_action.triggered.connect(self.show_toggle)
-            self.exit_action.triggered.connect(sys.exit)
-            self.menu.addAction(self.start_action)
-            self.menu.addAction(self.show_action)
-            self.menu.addAction(self.exit_action)
-            self.tray_icon.setContextMenu(self.menu)
-            self.tray_icon.activated.connect(self.on_tray_icon_activated)
-            self.tray_icon.show()
-            
-            # warning 事件
-            self.warning.sure.clicked.connect(self.warning_close)
-            self.warning.reset.clicked.connect(self.reset_config)
-        except:
-            QMessageBox.critical(self, "错误", "初始化失败！(ui文件损坏)\n请重装软件或检查ui文件！")
 
     def toggle(self):
         if self.thread.isRunning():
