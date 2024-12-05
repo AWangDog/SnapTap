@@ -4,7 +4,7 @@ from PySide6.QtGui import QPixmap, QResizeEvent, QStandardItemModel, QStandardIt
 from PySide6.QtCore import Qt, QThread, Signal, QEvent
 import sys, shutil, os, configparser, re, json, keyboard, time, ctypes, pynput
 
-version = "1.3"
+version = "1.4"
 
 class act_config():
     """配置文件类函数
@@ -112,6 +112,19 @@ class check():
         except:
             return False
 
+    def is_filePath(self, path : str) -> bool:
+        """文件检查
+
+        Args:
+            path (str): 文件路径
+
+        Returns:
+            bool: 文件是否存在
+        """
+        return os.path.exists(path)
+
+
+    
 class Worker(QThread):
     """主要函数类
 
@@ -319,12 +332,16 @@ class Main(QMainWindow):
             self.thread.stop()
             self.ui.start.setText("启用")
             self.start_action.setText("启用")
+            self.setWindowIcon(QIcon("ui\\icon.ico"))
+            self.tray_icon.setIcon(QIcon("ui\\icon.ico"))
         else:
             self.write_val(act_config().readConfig())
             self.thread = Worker()
             self.thread.start()
             self.ui.start.setText("停用")
             self.start_action.setText("停用")
+            self.setWindowIcon(QIcon("ui\\running.ico"))
+            self.tray_icon.setIcon(QIcon("ui\\running.ico"))
             
     def warning_close(self):
         self.warning.hide()
