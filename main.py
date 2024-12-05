@@ -332,16 +332,22 @@ class Main(QMainWindow):
             self.thread.stop()
             self.ui.start.setText("启用")
             self.start_action.setText("启用")
-            self.setWindowIcon(QIcon("ui\\icon.ico"))
-            self.tray_icon.setIcon(QIcon("ui\\icon.ico"))
+            try:
+                self.setWindowIcon(QIcon("ui\\icon.ico"))
+                self.tray_icon.setIcon(QIcon("ui\\icon.ico"))
+            except:
+                pass
         else:
             self.write_val(act_config().readConfig())
             self.thread = Worker()
             self.thread.start()
             self.ui.start.setText("停用")
             self.start_action.setText("停用")
-            self.setWindowIcon(QIcon("ui\\running.ico"))
-            self.tray_icon.setIcon(QIcon("ui\\running.ico"))
+            try:
+                self.setWindowIcon(QIcon("ui\\running.ico"))
+                self.tray_icon.setIcon(QIcon("ui\\running.ico"))
+            except:
+                pass
             
     def warning_close(self):
         self.warning.hide()
