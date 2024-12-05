@@ -2,8 +2,9 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QLineEdit, QFileDialog,
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtGui import QPixmap, QResizeEvent, QStandardItemModel, QStandardItem, QIcon, QAction
 from PySide6.QtCore import Qt, QThread, Signal, QEvent
-import sys, shutil, os, configparser, re, json, keyboard, time, ctypes
+import sys, shutil, os, configparser, re, json, keyboard, time, ctypes, pynput
 
+version = "1.3"
 
 class act_config():
     """配置文件类函数
@@ -39,12 +40,13 @@ class check():
             s (str): 输入按键
 
         Returns:
-            bool: 是否只有一个按键
+            bool: 是否为纯字母
         """
         if len(s) == 1:
-            return True
+            if s.isalpha():
+                return True
         else:
-            return s != "" and ',' not in s and '+' not in s
+            return False
             
     def is_number(self, s : str) -> bool:
         """数字检查
@@ -124,37 +126,99 @@ class Worker(QThread):
         """主要实现逻辑函数
         """
         self.config = act_config().readConfig()
-        key = [self.config['left'], self.config['right'], self.config['down'], self.config['up']]
-        unkey = [self.config['right'], self.config['left'], self.config['up'], self.config['down']]
-        last_key = [False, False, False, False]
-        self.config['wait'] = float(self.config['wait'])
-        if self.config['wait'] >= 1000:
-            self.config['wait'] = 1000
-        elif self.config['wait'] <= 0.01:
-            self.config['wait'] = 0.01
-        while self._running:
-            now = [keyboard.is_pressed(k) for k in key]
-            pressing = [((not a) and b) for a, b in zip(last_key, now)]
-            releaseing = [(a and (not b)) for a, b in zip(last_key, now)]
-            for i in range(4):
-                if pressing[i] and keyboard.is_pressed(unkey[i]):
-                    keyboard.release(unkey[i])
-                if releaseing[i] and keyboard.is_pressed(unkey[i]):
-                    keyboard.press(unkey[i])
-            last_key = [keyboard.is_pressed(k) for k in key]
-            time.sleep(self.config['wait'] / 1000)
+        self.config = {'left': self.VkKeyScanExA(self.config['left']), 'right': self.VkKeyScanExA(self.config['right']), 'up': self.VkKeyScanExA(self.config['up']), 'down': self.VkKeyScanExA(self.config['down'])}
+        self.last_key = [False, False, False, False]
+        self.listen_key = [False, False, False, False]
+        self.liar_key = False
+        self.keyboard_controller = pynput.keyboard.Controller()
+        self.key_bind = [self.config['left'], self.config['right'], self.config['up'], self.config['down']]
+        self.unkey = [self.config['right'], self.config['left'], self.config['down'], self.config['up']]
+        with pynput.keyboard.Listener(on_press=self.on_press, on_release=self.on_release) as listener:
+            listener.join()
+            
+    def VkKeyScanExA(self, character, hwnd=None):
+        user32 = ctypes.WinDLL('user32', use_last_error=True)
+        user32.VkKeyScanExA.argtypes = [ctypes.wintypes.CHAR, ctypes.wintypes.HWND]
+        user32.VkKeyScanExA.restype = ctypes.wintypes.BYTE
+        try:
+            if hwnd is None:
+                hwnd = 0
+            result = user32.VkKeyScanExA(ctypes.c_char(character.encode('ascii')), hwnd)
+            return result
+        except:
+            return character
+    
+    def on_press(self, key):
+        if not self._running:
+            return False
+        if not self.liar_key:
+            try:
+                if self.to_vk(key) in self.key_bind:
+                    for i, v in enumerate(self.key_bind):
+                        if self.to_vk(key) == v:
+                            self.listen_key[i] = True
+                    self.pressing = [((not a) and b) for a, b in zip(self.last_key, self.listen_key)]
+                    self.releaseing = [(a and (not b)) for a, b in zip(self.last_key, self.listen_key)]
+                    for i in range(4):
+                        if self.pressing[i] and [self.listen_key[1], self.listen_key[0], self.listen_key[3], self.listen_key[2]][i]:
+                            self.release_key(self.unkey[i])
+                        if self.releaseing[i] and [self.listen_key[1], self.listen_key[0], self.listen_key[3], self.listen_key[2]][i]:
+                            self.press_key(self.unkey[i])
+                    self.last_key = self.listen_key.copy()
+            except AttributeError:
+                pass
+        else:
+            self.liar_key = False
+    
+    def on_release(self, key):
+        if not self._running:
+            return False
+        if not self.liar_key:
+            try:
+                if self.to_vk(key) in self.key_bind:
+                    for i, v in enumerate(self.key_bind):
+                        if self.to_vk(key) == v:
+                            self.listen_key[i] = False
+                    self.pressing = [((not a) and b) for a, b in zip(self.last_key, self.listen_key)]
+                    self.releaseing = [(a and (not b)) for a, b in zip(self.last_key, self.listen_key)]
+                    for i in range(4):
+                        if self.pressing[i] and [self.listen_key[1], self.listen_key[0], self.listen_key[3], self.listen_key[2]][i]:
+                            self.release_key(self.unkey[i])
+                        if self.releaseing[i] and [self.listen_key[1], self.listen_key[0], self.listen_key[3], self.listen_key[2]][i]:
+                            self.press_key(self.unkey[i])
+                    self.last_key = self.listen_key.copy()
+            except AttributeError:
+                pass
+        else:
+            self.liar_key = False
+        
+    def press_key(self, key):
+        self.keyboard_controller.press(pynput.keyboard.KeyCode.from_vk(key))
+        self.liar_key = True
 
+    def release_key(self, key):
+        self.keyboard_controller.release(pynput.keyboard.KeyCode.from_vk(key))
+        self.liar_key = True
+    
+    def to_vk(self, key):
+        if type(key) == pynput.keyboard.KeyCode:
+            ascii_value = key.vk
+            return(ascii_value)
+        else:
+            return(key)
+            
     def stop(self):
         """主要函数多线程停止函数
         """
         self._running = False
+        
+
 
 # uiLoader 实例化
 uiLoader = QUiLoader()
 # 主窗口类
 class Main(QMainWindow):
     def __init__(self):
-        
         super().__init__()
         # 加载 ui 文件
         try:
@@ -222,8 +286,8 @@ class Main(QMainWindow):
             self.reset_config()
             self.config = act_config().readConfig()
         self.write_val(self.config)
-        if float(self.config.get('version', '0') != '1.2'):
-            self.config['version'] = '1.2'
+        if float(self.config.get('version', '0') != version):
+            self.config['version'] = version
         act_config().writeConfig(self.config)
         if self.config.get('running', '0') == '0':
             self.config['running'] = '1'
@@ -269,7 +333,7 @@ class Main(QMainWindow):
     
     def reset_config(self):
         self.warning_close()
-        self.config = {'wait' : 0.1, 'left' : 'a', 'right' : 'd', 'up' : 'w', 'down' :'s', 'version' : '1.2', 'running' : '1'}
+        self.config = {'wait' : 0.1, 'left' : 'a', 'right' : 'd', 'up' : 'w', 'down' :'s', 'version' : version, 'running' : '1'}
         act_config().writeConfig(self.config)
         self.write_val(self.config)
 
@@ -280,7 +344,6 @@ class Main(QMainWindow):
             act_config().writeConfig(self.config)
             if self.thread.isRunning():
                 self.thread.stop()
-                self.thread.wait()
                 self.thread = Worker()
                 self.thread.start()
         elif not check().is_temp(self.config):
@@ -343,15 +406,12 @@ class Main(QMainWindow):
         """
         self.exit(1)
         super().closeEvent(event)
-        
-    def close(self):
-        self.exit(1)
-        super().close()
     
     def exit(self, event = 0):
         """关闭程序前的动作
         """
         self.warning.close()
+        self.thread.stop()
         self.config['running'] = 0
         self.saveConfig()
         if event == 0:
