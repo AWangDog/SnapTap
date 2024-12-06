@@ -4,7 +4,7 @@ from PySide6.QtGui import QPixmap, QResizeEvent, QStandardItemModel, QStandardIt
 from PySide6.QtCore import Qt, QThread, Signal, QEvent
 import sys, shutil, os, configparser, re, json, keyboard, time, ctypes, pynput
 
-version = "1.4"
+version = "1.5"
 
 class act_config():
     """配置文件类函数
@@ -420,6 +420,9 @@ class Main(QMainWindow):
         else:
             self.show()
             self.show_action.setText("隐藏")
+            self.setWindowState(Qt.WindowActive)
+            self.raise_()
+            self.activateWindow()
     
     def closeEvent(self, event):
         """覆写窗口关闭逻辑
