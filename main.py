@@ -4,7 +4,7 @@ from PySide6.QtGui import QPixmap, QResizeEvent, QStandardItemModel, QStandardIt
 from PySide6.QtCore import Qt, QThread, Signal, QEvent
 import sys, shutil, os, configparser, re, json, keyboard, time, ctypes, pynput
 
-version = "1.5"
+version = "1.6"
 
 class act_config():
     """配置文件类函数
@@ -122,8 +122,35 @@ class check():
             bool: 文件是否存在
         """
         return os.path.exists(path)
+    
+    def args_check(self, args : list) -> list:
+        """静默启动检查
 
+        Args:
+            args (list): 启动参数
 
+        Returns:
+            list: 包含的启动参数列表
+        """
+        args_list = []
+        args_list_ = ['background', 'run']
+        for arg in args:
+            for arg_ in args_list_:
+                if self.arg_check(arg, arg_):
+                    args_list.append(arg_)
+        return args_list
+
+    def arg_check(self, arg : str, arg_ : str) -> bool:
+        """检查参数
+
+        Args:
+            arg (str): 传入参数
+            arg_ (str): 参数名
+
+        Returns:
+            bool: 传入参数是否为参数名
+        """
+        return arg == f'--{arg_}' or arg == f'-{arg_}' or arg == f'/{arg_}' or arg == arg_
     
 class Worker(QThread):
     """主要函数类
@@ -281,7 +308,7 @@ class Main(QMainWindow):
         self.tray_icon.setIcon(QIcon("ui\\icon.ico"))
         self.menu = QMenu()
         self.start_action = QAction("启用", self)
-        self.show_action = QAction("隐藏", self)
+        self.show_action = QAction("显示", self)
         self.exit_action = QAction("退出", self)
         self.start_action.triggered.connect(self.toggle)
         self.show_action.triggered.connect(self.show_toggle)
@@ -326,6 +353,11 @@ class Main(QMainWindow):
         # warning 事件
         self.warning.sure.clicked.connect(self.warning_close)
         self.warning.reset.clicked.connect(self.reset_config)
+        
+        if not 'background' in check().args_check(sys.argv):
+            self.show_toggle()
+        if 'run' in check().args_check(sys.argv):
+            self.toggle()
 
     def toggle(self):
         if self.thread.isRunning():
@@ -442,11 +474,9 @@ class Main(QMainWindow):
         self.saveConfig()
         if event == 0:
             sys.exit()
-        
-    
-            
-# 启动程序
-app = QApplication(sys.argv)
-main_window = Main()
-main_window.show()
-sys.exit(app.exec())
+
+if __name__ == '__main__':
+    # 启动程序
+    app = QApplication(sys.argv)
+    main_window = Main()
+    sys.exit(app.exec())
