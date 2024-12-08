@@ -1,10 +1,10 @@
-from PySide6.QtWidgets import QApplication, QMessageBox, QLineEdit, QFileDialog, QKeySequenceEdit, QSystemTrayIcon, QMenu, QSizePolicy, QMainWindow, QWidget, QVBoxLayout, QLabel, QSplitter, QTabWidget, QTableView, QHeaderView, QPushButton
+from PySide6.QtWidgets import QApplication, QMessageBox, QLineEdit, QFileDialog, QDialog, QKeySequenceEdit, QCheckBox, QSystemTrayIcon, QMenu, QSizePolicy, QMainWindow, QWidget, QVBoxLayout, QLabel, QSplitter, QTabWidget, QTableView, QHeaderView, QPushButton
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtGui import QPixmap, QResizeEvent, QStandardItemModel, QStandardItem, QIcon, QAction
-from PySide6.QtCore import Qt, QThread, Signal, QEvent
-import sys, shutil, os, configparser, re, json, keyboard, time, ctypes, pynput
+from PySide6.QtCore import Qt, QThread, Signal, QEvent, QFile
+import sys, shutil, os, configparser, re, json, keyboard, time, ctypes, pynput, win32com.client
 
-version = "1.6"
+version = "1.7"
 
 class act_config():
     """配置文件类函数
@@ -79,8 +79,7 @@ class check():
         Returns:
             bool: 是否为可接受类型
         """
-        return (self.is_number(c['wait'])
-            and self.is_oneKey(c['left'])
+        return (self.is_oneKey(c['left'])
             and self.is_oneKey(c['right'])
             and self.is_oneKey(c['up'])
             and self.is_oneKey(c['down']))
@@ -94,13 +93,11 @@ class check():
         Returns:
             bool: 是否为临时状态
         """
-        return (c['wait'] == '' 
-                or c['left'] == ''
+        return (c['left'] == ''
                 or c['right'] == ''
                 or c['up'] == ''
                 or c['down'] == ''
                 )
-        
     def is_admin(self) -> bool:
         """管理员检查
 
@@ -139,6 +136,24 @@ class check():
                 if self.arg_check(arg, arg_):
                     args_list.append(arg_)
         return args_list
+    
+    def is_task_exists(self, task_name : str) -> bool:
+        """检查任务
+
+        Args:
+            task_name (str): 任务名
+
+        Returns:
+            bool: 任务是否存在
+        """
+        scheduler = win32com.client.Dispatch('Schedule.Service')
+        scheduler.Connect()
+        root_folder = scheduler.GetFolder('\\')
+        tasks = root_folder.GetTasks(0)
+        for task in tasks:
+            if task.Name == task_name:
+                return True
+        return False
 
     def arg_check(self, arg : str, arg_ : str) -> bool:
         """检查参数
@@ -251,8 +266,52 @@ class Worker(QThread):
         """主要函数多线程停止函数
         """
         self._running = False
-        
 
+class Setting(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setting_ui = QUiLoader().load('ui\\setting.ui', self)
+        self.setWindowTitle("设置")
+        # 设置窗口大小
+        self.setMaximumHeight(84)
+        self.setMaximumWidth(115)
+        self.setMinimumHeight(84)
+        self.setMinimumWidth(115)
+
+    def closeEvent(self, event):
+        self.toggle()
+        event.ignore()
+    
+    def toggle(self):
+        if self.isVisible():
+            self.hide()
+        else:
+            self.show()
+            self.raise_()
+            self.activateWindow()
+            if not check().is_admin():
+                self.setting_ui.run_on_windows_startup.setDisabled(True)
+                self.setting_ui.run_on_windows_startup.setText("开机自动运行(需要管理员权限)")
+                self.setMaximumWidth(210)
+                self.setMinimumWidth(210)
+            else:
+                if check().is_task_exists('SnapTap'):
+                    self.setting_ui.run_on_windows_startup.setCheckState(Qt.Checked)
+                    scheduler = win32com.client.Dispatch('Schedule.Service')
+                    scheduler.Connect()
+                    scheduler.GetFolder('\\').DeleteTask('SnapTap', 0)
+                    main_window.create_run_on_system_startup_task(os.path.abspath(sys.argv[0]))
+                else:
+                    self.setting_ui.run_on_windows_startup.setCheckState(Qt.Unchecked)
+            config = act_config().readConfig()
+            if config.get('background', False) == 'True':
+                self.setting_ui.background.setCheckState(Qt.Checked)
+            else:
+                self.setting_ui.background.setCheckState(Qt.Unchecked)
+            if config.get('run', False) == 'True':
+                self.setting_ui.run.setCheckState(Qt.Checked)
+            else:
+                self.setting_ui.run.setCheckState(Qt.Unchecked)
 
 # uiLoader 实例化
 uiLoader = QUiLoader()
@@ -264,22 +323,25 @@ class Main(QMainWindow):
         try:
             self.ui = QUiLoader().load('ui\\main.ui')
             self.warning = QUiLoader().load('ui\\warning.ui')
+            self.setting = QUiLoader().load('ui\\Setting.ui')
+            self.setting = Setting(self)
         except:
             QMessageBox.critical(self, "错误", "加载 ui 文件失败！\n请重装软件或检查ui是否存在！")
             sys.exit(1)
 
         err = False
         try:
-            if not (type(self.ui.wait) == QLineEdit
+            if not (type(self.ui.start) == QPushButton
             and type(self.ui.left) == QKeySequenceEdit
             and type(self.ui.right) == QKeySequenceEdit
             and type(self.ui.up) == QKeySequenceEdit
             and type(self.ui.down) == QKeySequenceEdit
-            and type(self.ui.start) == QPushButton
+            and type(self.ui.setting) == QPushButton
             and type(self.warning.sure) == QPushButton
             and type(self.warning.reset) == QPushButton
-            and type(self.warning.label) == QLabel
-            and type(self.ui.label) == QLabel
+            and type(self.setting.setting_ui.run_on_windows_startup) == QCheckBox
+            and type(self.setting.setting_ui.background) == QCheckBox
+            and type(self.setting.setting_ui.run) == QCheckBox
             ):
                 err = True
         except:
@@ -300,6 +362,7 @@ class Main(QMainWindow):
         try:
             self.setWindowIcon(QIcon("ui\\icon.ico"))
             self.warning.setWindowIcon(QIcon("ui\\warning.ico"))
+            self.setting.setWindowIcon(QIcon("ui\\setting.ico"))
         except:
             pass
         
@@ -328,9 +391,12 @@ class Main(QMainWindow):
         self.write_val(self.config)
         if float(self.config.get('version', '0') != version):
             self.config['version'] = version
-        act_config().writeConfig(self.config)
         if self.config.get('running', '0') == '0':
             self.config['running'] = '1'
+        try:
+            del self.config['wait']
+        except:
+            pass
         act_config().writeConfig(self.config)
             
         # 设置窗口大小
@@ -340,11 +406,11 @@ class Main(QMainWindow):
         self.setMinimumWidth(280)
 
         # 设置事件
-        self.ui.wait.textChanged.connect(self.saveConfig)
         self.ui.left.keySequenceChanged.connect(self.saveConfig)
         self.ui.right.keySequenceChanged.connect(self.saveConfig)
         self.ui.up.keySequenceChanged.connect(self.saveConfig)
         self.ui.down.keySequenceChanged.connect(self.saveConfig)
+        self.ui.setting.clicked.connect(self.setting.toggle)
 
         # 按钮事件
         self.ui.start.clicked.connect(self.toggle)
@@ -354,10 +420,30 @@ class Main(QMainWindow):
         self.warning.sure.clicked.connect(self.warning_close)
         self.warning.reset.clicked.connect(self.reset_config)
         
-        if not 'background' in check().args_check(sys.argv):
-            self.show_toggle()
+        # setting 事件
+        self.setting.setting_ui.run_on_windows_startup.stateChanged.connect(self.run_on_system_startup)
+        self.setting.setting_ui.background.stateChanged.connect(self.save_setting)
+        self.setting.setting_ui.run.stateChanged.connect(self.save_setting)
+        
+        # 处理启动参数
         if 'run' in check().args_check(sys.argv):
             self.toggle()
+        elif self.config.get('run', False) == 'True':
+            self.toggle()
+        else:
+            if not self.config.get('run', False) == 'True':
+                self.config['run'] = False
+        show = True
+        if 'background' in check().args_check(sys.argv):
+            show = False
+        elif self.config.get('background', False) == 'True':
+            show = False
+        else:
+            if not self.config.get('background', False) == 'True':
+                self.config['background'] = False
+        if show:
+            self.show_toggle()
+        act_config().writeConfig(self.config)
 
     def toggle(self):
         if self.thread.isRunning():
@@ -380,6 +466,20 @@ class Main(QMainWindow):
                 self.tray_icon.setIcon(QIcon("ui\\running.ico"))
             except:
                 pass
+                
+    def show_toggle(self):
+        """切换主窗口显示与隐藏
+        """
+        if self.isVisible():
+            self.hide()
+            self.setting.hide()
+            self.show_action.setText("显示")
+        else:
+            self.show()
+            self.show_action.setText("隐藏")
+            self.setWindowState(Qt.WindowActive)
+            self.raise_()
+            self.activateWindow()
             
     def warning_close(self):
         self.warning.hide()
@@ -388,7 +488,7 @@ class Main(QMainWindow):
     
     def reset_config(self):
         self.warning_close()
-        self.config = {'wait' : 0.1, 'left' : 'a', 'right' : 'd', 'up' : 'w', 'down' :'s', 'version' : version, 'running' : '1'}
+        self.config = {'left' : 'a', 'right' : 'd', 'up' : 'w', 'down' :'s', 'version' : version, 'running' : '1', 'run' : False, 'background' : False}
         act_config().writeConfig(self.config)
         self.write_val(self.config)
 
@@ -405,6 +505,8 @@ class Main(QMainWindow):
             self.ui.setDisabled(True)
             self.menu.setDisabled(True)
             self.warning.show()
+            self.warning.raise_()
+            self.warning.activateWindow()
             self.write_val(act_config().readConfig())
 
         
@@ -414,7 +516,6 @@ class Main(QMainWindow):
         Args:
             config (dict): 配置参数字典
         """
-        self.ui.wait.setText(str(config['wait']))
         self.ui.left.setKeySequence(config['left'])
         self.ui.right.setKeySequence(config['right'])
         self.ui.up.setKeySequence(config['up'])
@@ -427,12 +528,17 @@ class Main(QMainWindow):
             dict: 配置参数字典
         """
         return {
-            'wait': self.ui.wait.text(),
             'left': self.ui.left.keySequence().toString(),
             'right': self.ui.right.keySequence().toString(),
             'up': self.ui.up.keySequence().toString(),
             'down': self.ui.down.keySequence().toString()
         }
+        
+    def save_setting(self):
+        self.config = act_config().readConfig()
+        self.config['background'] = str(self.setting.setting_ui.background.isChecked())
+        self.config['run'] = str(self.setting.setting_ui.run.isChecked())
+        act_config().writeConfig(self.config)
         
     def on_tray_icon_activated(self, reason):
         """左键单击托盘图标切换主窗口显示与隐藏
@@ -442,20 +548,44 @@ class Main(QMainWindow):
         """
         if reason == QSystemTrayIcon.Trigger:
             self.show_toggle()
-                
-    def show_toggle(self):
-        """切换主窗口显示与隐藏
+            
+    def create_run_on_system_startup_task(self, path):
+        """创建自启动任务
+
+        Args:
+            path (_type_): 程序路径
         """
-        if self.isVisible():
-            self.hide()
-            self.show_action.setText("显示")
+        scheduler = win32com.client.Dispatch('Schedule.Service')
+        scheduler.Connect()
+        task = scheduler.NewTask(0)
+        task.RegistrationInfo.Description = 'Snaptap开机自启动'
+        task.RegistrationInfo.Author = "SnapTap"
+        task.Principal.LogonType = 3
+        task.Principal.RunLevel = 1
+        trigger = task.Triggers.Create(9)
+        trigger.Enabled = True
+        exec_command = task.Actions.Create(0)
+        exec_command.Path = path
+        exec_command.Arguments = '--run --background'
+        exec_command.WorkingDirectory = os.path.dirname(path)
+        task.Settings.DisallowStartIfOnBatteries = False
+        task.Settings.StopIfGoingOnBatteries = True
+        task.Settings.AllowHardTerminate = True
+        task.Settings.StartWhenAvailable = False
+        task.Settings.Enabled = True
+        task.Settings.Hidden = False
+        task.Settings.ExecutionTimeLimit = 'PT0S'
+        task.Settings.Priority = 7
+        scheduler.GetFolder('\\').RegisterTaskDefinition('\\SnapTap',task,6,None,None,3,None)
+        
+    def run_on_system_startup(self):
+        if self.setting.setting_ui.run_on_windows_startup.isChecked():
+            self.create_run_on_system_startup_task(os.path.abspath(sys.argv[0]))
         else:
-            self.show()
-            self.show_action.setText("隐藏")
-            self.setWindowState(Qt.WindowActive)
-            self.raise_()
-            self.activateWindow()
-    
+            scheduler = win32com.client.Dispatch('Schedule.Service')
+            scheduler.Connect()
+            scheduler.GetFolder('\\').DeleteTask('SnapTap', 0)
+
     def closeEvent(self, event):
         """覆写窗口关闭逻辑
 
@@ -469,6 +599,7 @@ class Main(QMainWindow):
         """关闭程序前的动作
         """
         self.warning.close()
+        self.setting.setting_ui.close()
         self.thread.stop()
         self.config['running'] = 0
         self.saveConfig()
