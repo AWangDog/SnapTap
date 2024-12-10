@@ -4,7 +4,7 @@ from PySide6.QtGui import QPixmap, QResizeEvent, QStandardItemModel, QStandardIt
 from PySide6.QtCore import Qt, QThread, Signal, QEvent, QFile, QSharedMemory
 import sys, shutil, os, configparser, re, json, keyboard, time, ctypes, pynput, win32com.client, subprocess, shlex, warnings, filelock
 
-version = "1.9"
+version = "1.10"
 
 class act_config():
     """配置文件类函数
@@ -282,8 +282,9 @@ class Worker(QThread):
 
 
 class Setting(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
+    def __init__(self, root):
+        super().__init__()
+        self.root = root
         self.setting_ui = QUiLoader().load('ui\\setting.ui', self)
         self.setWindowTitle("设置")
         # 设置窗口大小
@@ -303,20 +304,16 @@ class Setting(QDialog):
             self.show()
             self.raise_()
             self.activateWindow()
+            if check().is_task_exists('SnapTap'):
+                self.setting_ui.run_on_windows_startup.setCheckState(Qt.Checked)
+                self.root.create_run_on_system_startup_task(os.path.abspath(sys.argv[0]))
+            else:
+                self.setting_ui.run_on_windows_startup.setCheckState(Qt.Unchecked)
             if not check().is_admin():
                 self.setting_ui.run_on_windows_startup.setDisabled(True)
                 self.setting_ui.run_on_windows_startup.setText("开机自动运行(需要管理员权限)")
                 self.setMaximumWidth(210)
                 self.setMinimumWidth(210)
-            else:
-                if check().is_task_exists('SnapTap'):
-                    self.setting_ui.run_on_windows_startup.setCheckState(Qt.Checked)
-                    scheduler = win32com.client.Dispatch('Schedule.Service')
-                    scheduler.Connect()
-                    scheduler.GetFolder('\\').DeleteTask('SnapTap', 0)
-                    main_window.create_run_on_system_startup_task(os.path.abspath(sys.argv[0]))
-                else:
-                    self.setting_ui.run_on_windows_startup.setCheckState(Qt.Unchecked)
             config = act_config().readConfig()
             if config.get('background', False) == 'True':
                 self.setting_ui.background.setCheckState(Qt.Checked)
@@ -427,6 +424,8 @@ class Main(QMainWindow):
             self.setCentralWidget(self.ui)
             if check().is_admin():
                 self.setWindowTitle("SnapTap [管理员]")
+                if check().is_task_exists('SnapTap'):
+                    self.create_run_on_system_startup_task(os.path.abspath(sys.argv[0]))
             else:
                 self.setWindowTitle("SnapTap [非管理员, 某些情况可能无法生效]")
 
@@ -646,28 +645,31 @@ class Main(QMainWindow):
         Args:
             path (_type_): 程序路径
         """
-        scheduler = win32com.client.Dispatch('Schedule.Service')
-        scheduler.Connect()
-        task = scheduler.NewTask(0)
-        task.RegistrationInfo.Description = 'Snaptap开机自启动'
-        task.RegistrationInfo.Author = "SnapTap"
-        task.Principal.LogonType = 3
-        task.Principal.RunLevel = 1
-        trigger = task.Triggers.Create(9)
-        trigger.Enabled = True
-        exec_command = task.Actions.Create(0)
-        exec_command.Path = path
-        exec_command.Arguments = '--run --background'
-        exec_command.WorkingDirectory = os.path.dirname(path)
-        task.Settings.DisallowStartIfOnBatteries = False
-        task.Settings.StopIfGoingOnBatteries = True
-        task.Settings.AllowHardTerminate = True
-        task.Settings.StartWhenAvailable = False
-        task.Settings.Enabled = True
-        task.Settings.Hidden = False
-        task.Settings.ExecutionTimeLimit = 'PT0S'
-        task.Settings.Priority = 7
-        scheduler.GetFolder('\\').RegisterTaskDefinition('\\SnapTap',task,6,None,None,3,None)
+        try:
+            scheduler = win32com.client.Dispatch('Schedule.Service')
+            scheduler.Connect()
+            task = scheduler.NewTask(0)
+            task.RegistrationInfo.Description = 'Snaptap开机自启动'
+            task.RegistrationInfo.Author = "SnapTap"
+            task.Principal.LogonType = 3
+            task.Principal.RunLevel = 1
+            trigger = task.Triggers.Create(9)
+            trigger.Enabled = True
+            exec_command = task.Actions.Create(0)
+            exec_command.Path = path
+            exec_command.Arguments = '--run --background'
+            exec_command.WorkingDirectory = os.path.dirname(path)
+            task.Settings.DisallowStartIfOnBatteries = False
+            task.Settings.StopIfGoingOnBatteries = True
+            task.Settings.AllowHardTerminate = True
+            task.Settings.StartWhenAvailable = False
+            task.Settings.Enabled = True
+            task.Settings.Hidden = False
+            task.Settings.ExecutionTimeLimit = 'PT0S'
+            task.Settings.Priority = 7
+            scheduler.GetFolder('\\').RegisterTaskDefinition('\\SnapTap',task,6,None,None,3,None)
+        except:
+            pass
         
     def run_on_system_startup(self): # 注册开机自启动
         """注册开机自启动
