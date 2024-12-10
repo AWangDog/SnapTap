@@ -1,10 +1,10 @@
-from PySide6.QtWidgets import QApplication, QMessageBox, QLineEdit, QFileDialog, QDialog, QKeySequenceEdit, QCheckBox, QSystemTrayIcon, QMenu, QSizePolicy, QMainWindow, QWidget, QVBoxLayout, QLabel, QSplitter, QTabWidget, QTableView, QHeaderView, QPushButton
+from PySide6.QtWidgets import QApplication, QMessageBox, QLineEdit, QFileDialog, QDialog, QKeySequenceEdit, QCheckBox, QSystemTrayIcon, QMenu, QSizePolicy, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSplitter, QTabWidget, QTableView, QHeaderView, QPushButton
 from PySide6.QtUiTools import QUiLoader
-from PySide6.QtGui import QPixmap, QResizeEvent, QStandardItemModel, QStandardItem, QIcon, QAction
+from PySide6.QtGui import QPixmap, QResizeEvent, QStandardItemModel, QStandardItem, QIcon, QAction, QKeySequence
 from PySide6.QtCore import Qt, QThread, Signal, QEvent, QFile, QSharedMemory
 import sys, shutil, os, configparser, re, json, keyboard, time, ctypes, pynput, win32com.client, subprocess, shlex, warnings, filelock
 
-version = "1.8"
+version = "1.9"
 
 class act_config():
     """配置文件类函数
@@ -33,71 +33,6 @@ class act_config():
 class check():
     """检查类函数
     """
-    def is_oneKey(self, s : str) -> bool:
-        """按键检查
-
-        Args:
-            s (str): 输入按键
-
-        Returns:
-            bool: 是否为纯字母
-        """
-        if len(s) == 1:
-            if s.isalpha():
-                return True
-        else:
-            return False
-            
-    def is_number(self, s : str) -> bool:
-        """数字检查
-
-        Args:
-            s (str): 输入数字
-
-        Returns:
-            bool: 是否是纯数字
-        """
-        try:
-            float(s)
-            return True
-        except ValueError:
-            pass
-        try:
-            import unicodedata
-            unicodedata.numeric(s)
-            return True
-        except (TypeError, ValueError):
-            pass
-        return False
-
-    def is_normal(self, c : dict) -> bool:
-        """配置类型检查
-
-        Args:
-            c (dict): 配置参数字典
-
-        Returns:
-            bool: 是否为可接受类型
-        """
-        return (self.is_oneKey(c['left'])
-            and self.is_oneKey(c['right'])
-            and self.is_oneKey(c['up'])
-            and self.is_oneKey(c['down']))
-        
-    def is_temp(self, c : dict) -> bool:
-        """临时值检查
-
-        Args:
-            c (dict): 配置参数字典
-
-        Returns:
-            bool: 是否为临时状态
-        """
-        return (c['left'] == ''
-                or c['right'] == ''
-                or c['up'] == ''
-                or c['down'] == ''
-                )
     def is_admin(self) -> bool:
         """管理员检查
 
@@ -173,36 +108,26 @@ class Worker(QThread):
     Args:
         QThread (Qthread): QT多线程
     """
-    def __init__(self, config):
+    def __init__(self):
         super().__init__()
-        self._running = True
-        self.config = config
+        self._running = False
 
-    def run(self):
+    def run(self, config):
         """主要实现逻辑函数
         """
-        self.config = {'left': self.VkKeyScanExA(self.config['left']), 'right': self.VkKeyScanExA(self.config['right']), 'up': self.VkKeyScanExA(self.config['up']), 'down': self.VkKeyScanExA(self.config['down'])}
+        self._running = True
+        self.config = config
+        self.config = {'left': int(self.config['left']), 'right': int(self.config['right']), 'up': int(self.config['up']), 'down': int(self.config['down'])}
         self.last_key = [False, False, False, False]
         self.listen_key = [False, False, False, False]
         self.liar_key = False
         self.keyboard_controller = pynput.keyboard.Controller()
         self.key_bind = [self.config['left'], self.config['right'], self.config['up'], self.config['down']]
         self.unkey = [self.config['right'], self.config['left'], self.config['down'], self.config['up']]
-        with pynput.keyboard.Listener(on_press=self.on_press, on_release=self.on_release) as listener:
-            listener.join()
-            
-    def VkKeyScanExA(self, character, hwnd=None):
-        user32 = ctypes.WinDLL('user32', use_last_error=True)
-        user32.VkKeyScanExA.argtypes = [ctypes.wintypes.CHAR, ctypes.wintypes.HWND]
-        user32.VkKeyScanExA.restype = ctypes.wintypes.BYTE
-        try:
-            if hwnd is None:
-                hwnd = 0
-            result = user32.VkKeyScanExA(ctypes.c_char(character.encode('ascii')), hwnd)
-            return result
-        except:
-            return character
-    
+        self.user32 = ctypes.WinDLL('user32', use_last_error=True)
+        self.listener = pynput.keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
+        self.listener.daemon = True
+        self.listener.start()
     def on_press(self, key):
         if not self._running:
             return False
@@ -248,11 +173,11 @@ class Worker(QThread):
             self.liar_key = False
         
     def press_key(self, key):
-        self.keyboard_controller.press(pynput.keyboard.KeyCode.from_vk(key))
+        self.keyboard_controller.press(self.from_vk(key))
         self.liar_key = True
 
     def release_key(self, key):
-        self.keyboard_controller.release(pynput.keyboard.KeyCode.from_vk(key))
+        self.keyboard_controller.release(self.from_vk(key))
         self.liar_key = True
     
     def to_vk(self, key):
@@ -265,14 +190,96 @@ class Worker(QThread):
             ascii_value = key.vk
             return(ascii_value)
         else:
-            return(key)
+            return(key.value.vk)
+        
+    def from_vk(self, vk):
+        """keycode转按键
+
+        Args:
+            vk (int): keycode
+        """
+        keydict = {
+            0x08 : pynput.keyboard.Key.backspace,
+            0x09 : pynput.keyboard.Key.tab,
+            0x0D : pynput.keyboard.Key.enter,
+            0x10 : pynput.keyboard.Key.shift,
+            0x11 : pynput.keyboard.Key.ctrl,
+            0x12 : pynput.keyboard.Key.alt,
+            0x13 : pynput.keyboard.Key.pause,
+            0x14 : pynput.keyboard.Key.caps_lock,
+            0x1B : pynput.keyboard.Key.esc,
+            0x20 : pynput.keyboard.Key.space,
+            0x21 : pynput.keyboard.Key.page_up,
+            0x22 : pynput.keyboard.Key.page_down,
+            0x23 : pynput.keyboard.Key.end,
+            0x24 : pynput.keyboard.Key.home,
+            0x25 : pynput.keyboard.Key.left,
+            0x26 : pynput.keyboard.Key.up,
+            0x27 : pynput.keyboard.Key.right,
+            0x28 : pynput.keyboard.Key.down,
+            0x2C : pynput.keyboard.Key.print_screen,
+            0x2D : pynput.keyboard.Key.insert,
+            0x2E : pynput.keyboard.Key.delete,
+            0x5B : pynput.keyboard.Key.cmd_l,
+            0x5C : pynput.keyboard.Key.cmd_r,
+            0x5D : pynput.keyboard.Key.menu,
+            0x70 : pynput.keyboard.Key.f1,
+            0x71 : pynput.keyboard.Key.f2,
+            0x72 : pynput.keyboard.Key.f3,
+            0x73 : pynput.keyboard.Key.f4,
+            0x74 : pynput.keyboard.Key.f5,
+            0x75 : pynput.keyboard.Key.f6,
+            0x76 : pynput.keyboard.Key.f7,
+            0x77 : pynput.keyboard.Key.f8,
+            0x78 : pynput.keyboard.Key.f9,
+            0x79 : pynput.keyboard.Key.f10,
+            0x7A : pynput.keyboard.Key.f11,
+            0x7B : pynput.keyboard.Key.f12,
+            0x7C : pynput.keyboard.Key.f13,
+            0x7D : pynput.keyboard.Key.f14,
+            0x7E : pynput.keyboard.Key.f15,
+            0x7F : pynput.keyboard.Key.f16,
+            0x80 : pynput.keyboard.Key.f17,
+            0x81 : pynput.keyboard.Key.f18,
+            0x82 : pynput.keyboard.Key.f19,
+            0x83 : pynput.keyboard.Key.f20,
+            0x84 : pynput.keyboard.Key.f21,
+            0x85 : pynput.keyboard.Key.f22,
+            0x86 : pynput.keyboard.Key.f23,
+            0x87 : pynput.keyboard.Key.f24,
+            0x90 : pynput.keyboard.Key.num_lock,
+            0x91 : pynput.keyboard.Key.scroll_lock,
+            0x90 : pynput.keyboard.Key.num_lock,
+            0x97 : pynput.keyboard.Key.media_previous,
+            0x98 : pynput.keyboard.Key.media_next,
+            0x99 : pynput.keyboard.Key.media_play_pause,
+            0x9B : pynput.keyboard.Key.media_volume_mute,
+            0x9C : pynput.keyboard.Key.media_volume_down,
+            0x9D : pynput.keyboard.Key.media_volume_up,
+            0xA0 : pynput.keyboard.Key.shift_l,
+            0xA1 : pynput.keyboard.Key.shift_r,
+            0xA2 : pynput.keyboard.Key.ctrl_l,
+            0xA3 : pynput.keyboard.Key.ctrl_r,
+            0xA4 : pynput.keyboard.Key.alt_l,
+            0xA5 : pynput.keyboard.Key.alt_r,
+            0xAD : pynput.keyboard.Key.media_volume_mute,
+            0xAE : pynput.keyboard.Key.media_volume_down,
+            0xAF : pynput.keyboard.Key.media_volume_up,
+            0xB0 : pynput.keyboard.Key.media_next,
+            0xB1 : pynput.keyboard.Key.media_previous,
+            0xB3 : pynput.keyboard.Key.media_play_pause
+        }
+        if vk in keydict:
+            return keydict[vk]
+        return pynput.keyboard.KeyCode.from_vk(vk)
             
     def stop(self):
         """主要函数多线程停止函数
         """
         self._running = False
-        self.release_key(252)
+        self.listener.stop()
         self.wait()
+
 
 class Setting(QDialog):
     def __init__(self, parent=None):
@@ -320,6 +327,35 @@ class Setting(QDialog):
             else:
                 self.setting_ui.run.setCheckState(Qt.Unchecked)
 
+class KeyInputEdit(QLineEdit):
+    keyPressed = Signal(QKeySequence)
+    
+    def __init__(self, root):
+        super().__init__()
+        self.setReadOnly(True)
+        self.root = root
+        
+    def keyPressEvent(self, event):
+        event.ignore()
+        self.key = event.key()
+        self.keyCode = event.nativeVirtualKey()
+        self.keyStr = QKeySequence(self.key).toString()
+        self.setText(self.keyStr)
+        self.root.saveConfig()
+        
+    def setTextOfKeyCode(self, keyCode):
+        keyStr = QKeySequence(int(keyCode)).toString()
+        self.setText(keyStr)
+        
+    def getKeyCode(self):
+        return int(self.keyCode)
+    
+    def getKeyName(self):
+        return self.keyStr
+    
+    def getKey(self):
+        return self.key
+
 # uiLoader 实例化
 uiLoader = QUiLoader()
 # 主窗口类
@@ -351,10 +387,10 @@ class Main(QMainWindow):
             err = False
             try:
                 if not (type(self.ui.start) == QPushButton
-                and type(self.ui.left) == QKeySequenceEdit
-                and type(self.ui.right) == QKeySequenceEdit
-                and type(self.ui.up) == QKeySequenceEdit
-                and type(self.ui.down) == QKeySequenceEdit
+                and type(self.ui.left_layout) == QHBoxLayout
+                and type(self.ui.right_layout) == QHBoxLayout
+                and type(self.ui.up_layout) == QHBoxLayout
+                and type(self.ui.down_layout) == QHBoxLayout
                 and type(self.ui.setting) == QPushButton
                 and type(self.warning.sure) == QPushButton
                 and type(self.warning.reset) == QPushButton
@@ -368,6 +404,13 @@ class Main(QMainWindow):
             if err:
                 QMessageBox.critical(self, "错误", "初始化失败！(ui文件损坏)\n请重装软件或检查ui文件！")
                 sys.exit(2)        
+                
+            
+            # 初始化按键输入框
+            self.ui.left = KeyInputEdit(self)
+            self.ui.right = KeyInputEdit(self)
+            self.ui.up = KeyInputEdit(self)
+            self.ui.down = KeyInputEdit(self)
 
 
             # 设置窗口图标
@@ -395,10 +438,10 @@ class Main(QMainWindow):
             
             # 读取配置文件
             self.config = act_config().readConfig()
-            if self.config == {}:
+            if self.config == {} or self.config.get('left_name', None) == None:
                 self.reset_config()
                 self.config = act_config().readConfig()
-            self.write_val(self.config)
+            self.write_val()
             if float(self.config.get('version', '0') != version):
                 self.config['version'] = version
             self.config = self.clean_config(self.config)
@@ -413,16 +456,24 @@ class Main(QMainWindow):
 
 
             # 设置主窗口事件
-            self.ui.left.keySequenceChanged.connect(self.saveConfig)
-            self.ui.right.keySequenceChanged.connect(self.saveConfig)
-            self.ui.up.keySequenceChanged.connect(self.saveConfig)
-            self.ui.down.keySequenceChanged.connect(self.saveConfig)
             self.ui.setting.clicked.connect(self.setting.toggle)
             self.ui.start.clicked.connect(self.toggle)
+            self.ui.left_layout.addWidget(self.ui.left)
+            self.ui.right_layout.addWidget(self.ui.right)
+            self.ui.up_layout.addWidget(self.ui.up)
+            self.ui.down_layout.addWidget(self.ui.down)
+            self.ui.left.keyCode = self.config.get('left', 65)
+            self.ui.right.keyCode = self.config.get('right', 68)
+            self.ui.up.keyCode = self.config.get('up', 87)
+            self.ui.down.keyCode = self.config.get('down', 83)
+            self.ui.left.keyStr = self.config.get('left_name', 'A')
+            self.ui.right.keyStr = self.config.get('right_name', 'D')
+            self.ui.up.keyStr = self.config.get('up_name', 'W')
+            self.ui.down.keyStr = self.config.get('down_name', 'S')
             
             
             # 初始化主函数
-            self.thread = Worker(self.config)
+            self.main_worker = Worker()
             
             
             # warning 事件
@@ -476,8 +527,8 @@ class Main(QMainWindow):
     def toggle(self): # 主函数启用/停用切换函数
         """主函数启用/停用切换函数
         """
-        if self.thread.isRunning():
-            self.thread.stop()
+        if self.main_worker._running:
+            self.main_worker.stop()
             self.ui.start.setText("启用")
             self.start_action.setText("启用")
             try:
@@ -487,9 +538,8 @@ class Main(QMainWindow):
                 pass
         else:
             self.config = act_config().readConfig()
-            self.write_val(self.config)
-            self.thread = Worker(self.config)
-            self.thread.start()
+            self.write_val()
+            self.main_worker.run(self.config)
             self.ui.start.setText("停用")
             self.start_action.setText("停用")
             try:
@@ -532,28 +582,19 @@ class Main(QMainWindow):
         """重置config.ini
         """
         self.warning_close()
-        self.config = {'left' : 'a', 'right' : 'd', 'up' : 'w', 'down' :'s', 'version' : version, 'run' : False, 'background' : False}
+        self.config = {'left' : '65', 'left_name' : 'A', 'right' : '68', 'right_name' : 'D', 'up' : '87', 'up_name' : 'W', 'down' :'83', 'down_name' :'S', 'version' : version, 'run' : False, 'background' : False}
         act_config().writeConfig(self.config)
-        self.write_val(self.config)
+        self.write_val()
 
     def saveConfig(self): # 保存config.ini
         """保存config.ini
         """
         for k, v in self.read_val().items():
             self.config[k] = v
-        if check().is_normal(self.config) and not check().is_temp(self.config):
             act_config().writeConfig(self.config)
-            if self.thread.isRunning():
-                self.thread.stop()
-                self.thread = Worker(self.config)
-                self.thread.start()
-        elif not check().is_temp(self.config):
-            self.ui.setDisabled(True)
-            self.menu.setDisabled(True)
-            self.warning.show()
-            self.warning.raise_()
-            self.warning.activateWindow()
-            self.write_val(act_config().readConfig())
+            if self.main_worker._running:
+                self.main_worker.stop()
+                self.main_worker.run(self.config)
             
     def clean_config(self, config : dict): # 清理无用配置
         """清理无用配置
@@ -573,16 +614,14 @@ class Main(QMainWindow):
         self.config['run'] = str(self.setting.setting_ui.run.isChecked())
         act_config().writeConfig(self.config)
 
-    def write_val(self, config : dict): # 将配置参数字典写入窗口控件
+    def write_val(self): # 将配置参数字典写入窗口控件
         """将配置参数字典写入窗口控件
-
-        Args:
-            config (dict): 配置参数字典
         """
-        self.ui.left.setKeySequence(config['left'])
-        self.ui.right.setKeySequence(config['right'])
-        self.ui.up.setKeySequence(config['up'])
-        self.ui.down.setKeySequence(config['down'])
+        self.ui.left.setText(self.config['left_name'])
+        self.ui.right.setText(self.config['right_name'])
+        self.ui.up.setText(self.config['up_name'])
+        self.ui.down.setText(self.config['down_name'])
+        pass
         
     def read_val(self) -> dict: # 从窗口控件读取配置参数字典
         """从窗口控件读取配置参数字典
@@ -591,10 +630,14 @@ class Main(QMainWindow):
             dict: 配置参数字典
         """
         return {
-            'left': self.ui.left.keySequence().toString(),
-            'right': self.ui.right.keySequence().toString(),
-            'up': self.ui.up.keySequence().toString(),
-            'down': self.ui.down.keySequence().toString()
+            'left': self.ui.left.getKeyCode(),
+            'left_name': self.ui.left.getKeyName(),
+            'right': self.ui.right.getKeyCode(),
+            'right_name': self.ui.right.getKeyName(),
+            'up': self.ui.up.getKeyCode(),
+            'up_name': self.ui.up.getKeyName(),
+            'down': self.ui.down.getKeyCode(),
+            'down_name': self.ui.down.getKeyName()
         }
             
     def create_run_on_system_startup_task(self, path): # 创建自启动任务
@@ -650,8 +693,8 @@ class Main(QMainWindow):
         """
         self.warning.close()
         self.setting.setting_ui.close()
-        if self.thread.isRunning():
-            self.thread.stop()
+        if self.main_worker._running:
+            self.main_worker.stop()
         self.saveConfig()
         if event == 0:
             sys.exit()
