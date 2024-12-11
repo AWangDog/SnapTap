@@ -308,7 +308,7 @@ class Setting(QDialog):
                 self.setting_ui.run.setCheckState(Qt.Checked)
             else:
                 self.setting_ui.run.setCheckState(Qt.Unchecked)
-
+ 
 class KeyInputEdit(QLineEdit):
     keyPressed = Signal(QKeySequence)
     
@@ -322,7 +322,7 @@ class KeyInputEdit(QLineEdit):
         self.key = event.key()
         self.keyCode = event.nativeVirtualKey()
         self.keyStr = QKeySequence(self.key).toString()
-        self.setText(self.keyStr)
+        self.setText(VK_CODE_to_CHAR(self.keyCode))
         self.root.saveConfig()
         
     def setTextOfKeyCode(self, keyCode):
@@ -337,6 +337,8 @@ class KeyInputEdit(QLineEdit):
     
     def getKey(self):
         return self.key
+
+def VK_CODE_to_CHAR(VK_CODE): return WinKeyBoard.type_conversion.fromVK_CODE(VK_CODE).get_CHAR()
 
 # uiLoader 实例化
 uiLoader = QUiLoader()
@@ -394,6 +396,10 @@ class Main(QMainWindow):
             self.ui.up = KeyInputEdit(self)
             self.ui.down = KeyInputEdit(self)
 
+            # 初始化托盘图标菜单
+            self.start_action = QAction("启用", self)
+            self.show_action = QAction("显示", self)
+            self.exit_action = QAction("退出", self)
 
             # 设置窗口图标
             try:
@@ -401,6 +407,9 @@ class Main(QMainWindow):
                 self.warning.setWindowIcon(QIcon("ui\\warning.ico"))
                 self.setting.setWindowIcon(QIcon("ui\\setting.ico"))
                 self.tray_icon.setIcon(QIcon("ui\\icon.ico"))
+                self.start_action.setIcon(QIcon("ui\\off.ico"))
+                self.show_action.setIcon(QIcon("ui\\hide.ico"))
+                self.exit_action.setIcon(QIcon("ui\\exit.ico"))
             except:
                 pass
 
@@ -473,10 +482,6 @@ class Main(QMainWindow):
             
             
             # 托盘事件
-            self.start_action = QAction("启用", self)
-            self.start_action.setIcon(QIcon("ui\\icon.ico"))
-            self.show_action = QAction("显示", self)
-            self.exit_action = QAction("退出", self)
             self.start_action.triggered.connect(self.toggle)
             self.show_action.triggered.connect(self.show_toggle)
             self.exit_action.triggered.connect(self.exit)
@@ -524,7 +529,7 @@ class Main(QMainWindow):
             try:
                 self.setWindowIcon(QIcon("ui\\icon.ico"))
                 self.tray_icon.setIcon(QIcon("ui\\icon.ico"))
-                self.start_action.setIcon(QIcon("ui\\icon.ico"))
+                self.start_action.setIcon(QIcon("ui\\off.ico"))
                 self.tray_icon.setToolTip(title_)
             except:
                 pass
@@ -539,7 +544,7 @@ class Main(QMainWindow):
             try:
                 self.setWindowIcon(QIcon("ui\\running.ico"))
                 self.tray_icon.setIcon(QIcon("ui\\running.ico"))
-                self.start_action.setIcon(QIcon("ui\\running.ico"))
+                self.start_action.setIcon(QIcon("ui\\on.ico"))
                 self.tray_icon.setToolTip(f'''{title_} 已启用\n上: {self.config['up_name']}\n左: {self.config['left_name']}\n下: {self.config['down_name']}\n右: {self.config['right_name']}''')
             except:
                 pass
@@ -551,12 +556,20 @@ class Main(QMainWindow):
             self.hide()
             self.setting.hide()
             self.show_action.setText("显示")
+            try:
+                self.show_action.setIcon(QIcon("ui\\show.ico"))
+            except:
+                pass
         else:
             self.show()
             self.show_action.setText("隐藏")
             self.setWindowState(Qt.WindowActive)
             self.raise_()
             self.activateWindow()
+            try:
+                self.show_action.setIcon(QIcon("ui\\hide.ico"))
+            except:
+                pass
               
     def on_tray_icon_activated(self, reason): # 左键单击托盘图标切换主窗口显示与隐藏
         """左键单击托盘图标切换主窗口显示与隐藏
@@ -616,10 +629,10 @@ class Main(QMainWindow):
     def write_val(self): # 将配置参数字典写入窗口控件
         """将配置参数字典写入窗口控件
         """
-        self.ui.left.setText(self.config['left_name'])
-        self.ui.right.setText(self.config['right_name'])
-        self.ui.up.setText(self.config['up_name'])
-        self.ui.down.setText(self.config['down_name'])
+        self.ui.left.setText(VK_CODE_to_CHAR(int(self.config['left'])))
+        self.ui.right.setText(VK_CODE_to_CHAR(int(self.config['right'])))
+        self.ui.up.setText(VK_CODE_to_CHAR(int(self.config['up'])))
+        self.ui.down.setText(VK_CODE_to_CHAR(int(self.config['down'])))
         pass
         
     def read_val(self) -> dict: # 从窗口控件读取配置参数字典
@@ -630,15 +643,11 @@ class Main(QMainWindow):
         """
         return {
             'left': self.ui.left.getKeyCode(),
-            'left_name': self.ui.left.getKeyName(),
             'right': self.ui.right.getKeyCode(),
-            'right_name': self.ui.right.getKeyName(),
             'up': self.ui.up.getKeyCode(),
-            'up_name': self.ui.up.getKeyName(),
             'down': self.ui.down.getKeyCode(),
-            'down_name': self.ui.down.getKeyName()
         }
-            
+    
     def create_run_on_system_startup_task(self, path): # 创建自启动任务
         """创建自启动任务
 
