@@ -2,9 +2,10 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QLineEdit, QFileDialog,
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtGui import QPixmap, QResizeEvent, QStandardItemModel, QStandardItem, QIcon, QAction, QKeySequence
 from PySide6.QtCore import Qt, QThread, Signal, QEvent, QFile, QSharedMemory
-import sys, shutil, os, configparser, re, json, keyboard, time, ctypes, pynput, win32com.client, subprocess, shlex, warnings, filelock
+import sys, shutil, os, configparser, re, json, keyboard, time, ctypes, pynput, win32com.client, subprocess, shlex, warnings, filelock, WinKeyBoard
 
-version = "1.10"
+version = "1.11"
+title = 'SnapTap'
 
 class act_config():
     """配置文件类函数
@@ -15,9 +16,13 @@ class act_config():
         Returns:
             dict: 配置参数字典
         """
-        config = configparser.ConfigParser()
-        config.read('config.ini')
-        return dict(config['DEFAULT'])
+        try:
+            config = configparser.ConfigParser()
+            config.read('config.ini')
+            return dict(config['DEFAULT'])
+        except:
+            print('配置文件读取失败')
+            return {}
 
     def writeConfig(self, config : dict) -> None:
         """写入配置文件
@@ -33,6 +38,67 @@ class act_config():
 class check():
     """检查类函数
     """
+    def is_config(self, config) -> bool:
+        """检查Config
+
+        Returns:
+            bool: Config数据是否可用
+        """
+        for i in ['left', 'left_name', 'right', 'right_name', 'up', 'up_name', 'down', 'down_name', 'background', 'run']:
+            if config.get(i, 'err') == 'err':
+                return False
+        for i in ['left', 'right', 'up', 'down']:
+            if not self.is_int(config.get(i, False)):
+                return False
+        for i in ['background', 'run']:
+            if not self.is_bool(config.get(i, False)):
+                return False
+        return True
+    
+    def is_work(self, config) -> bool:
+        """检查是否属于work接受类型
+
+        Returns:
+            bool: Config数据是否可用
+        """
+        for i in ['left', 'right', 'up', 'down']:
+            if config.get(i, 'err') == 'err':
+                return False
+        for i in ['left', 'right', 'up', 'down']:
+            if not self.is_int(config.get(i, False)):
+                return False
+        return True
+    
+    def is_bool(self, s : str) -> bool:
+        """布尔值检查
+
+        Args:
+            s (str): 输入布尔值
+
+        Returns:
+            bool: 是否是布尔值
+        """
+        if s == 'True' or s == 'False':
+            return True
+        return False
+        
+                
+    def is_int(self, s : str) -> bool:
+        """数字检查
+
+        Args:
+            s (str): 输入数字
+
+        Returns:
+            bool: 是否是纯整数
+        """
+        try:
+            int(s)
+            return True
+        except ValueError:
+            pass
+        return False
+        
     def is_admin(self) -> bool:
         """管理员检查
 
@@ -117,7 +183,6 @@ class Worker(QThread):
         """
         self._running = True
         self.config = config
-        self.config = {'left': int(self.config['left']), 'right': int(self.config['right']), 'up': int(self.config['up']), 'down': int(self.config['down'])}
         self.last_key = [False, False, False, False]
         self.listen_key = [False, False, False, False]
         self.liar_key = False
@@ -149,7 +214,7 @@ class Worker(QThread):
                 pass
         else:
             self.liar_key = False
-    
+
     def on_release(self, key):
         if not self._running:
             return False
@@ -173,11 +238,13 @@ class Worker(QThread):
             self.liar_key = False
         
     def press_key(self, key):
-        self.keyboard_controller.press(self.from_vk(key))
+        VK = WinKeyBoard.type_conversion.fromVK_CODE(key)
+        WinKeyBoard.key_controller.PressKey(VK)
         self.liar_key = True
 
     def release_key(self, key):
-        self.keyboard_controller.release(self.from_vk(key))
+        VK = WinKeyBoard.type_conversion.fromVK_CODE(key)
+        WinKeyBoard.key_controller.ReleaseKey(VK)
         self.liar_key = True
     
     def to_vk(self, key):
@@ -191,87 +258,6 @@ class Worker(QThread):
             return(ascii_value)
         else:
             return(key.value.vk)
-        
-    def from_vk(self, vk):
-        """keycode转按键
-
-        Args:
-            vk (int): keycode
-        """
-        keydict = {
-            0x08 : pynput.keyboard.Key.backspace,
-            0x09 : pynput.keyboard.Key.tab,
-            0x0D : pynput.keyboard.Key.enter,
-            0x10 : pynput.keyboard.Key.shift,
-            0x11 : pynput.keyboard.Key.ctrl,
-            0x12 : pynput.keyboard.Key.alt,
-            0x13 : pynput.keyboard.Key.pause,
-            0x14 : pynput.keyboard.Key.caps_lock,
-            0x1B : pynput.keyboard.Key.esc,
-            0x20 : pynput.keyboard.Key.space,
-            0x21 : pynput.keyboard.Key.page_up,
-            0x22 : pynput.keyboard.Key.page_down,
-            0x23 : pynput.keyboard.Key.end,
-            0x24 : pynput.keyboard.Key.home,
-            0x25 : pynput.keyboard.Key.left,
-            0x26 : pynput.keyboard.Key.up,
-            0x27 : pynput.keyboard.Key.right,
-            0x28 : pynput.keyboard.Key.down,
-            0x2C : pynput.keyboard.Key.print_screen,
-            0x2D : pynput.keyboard.Key.insert,
-            0x2E : pynput.keyboard.Key.delete,
-            0x5B : pynput.keyboard.Key.cmd_l,
-            0x5C : pynput.keyboard.Key.cmd_r,
-            0x5D : pynput.keyboard.Key.menu,
-            0x70 : pynput.keyboard.Key.f1,
-            0x71 : pynput.keyboard.Key.f2,
-            0x72 : pynput.keyboard.Key.f3,
-            0x73 : pynput.keyboard.Key.f4,
-            0x74 : pynput.keyboard.Key.f5,
-            0x75 : pynput.keyboard.Key.f6,
-            0x76 : pynput.keyboard.Key.f7,
-            0x77 : pynput.keyboard.Key.f8,
-            0x78 : pynput.keyboard.Key.f9,
-            0x79 : pynput.keyboard.Key.f10,
-            0x7A : pynput.keyboard.Key.f11,
-            0x7B : pynput.keyboard.Key.f12,
-            0x7C : pynput.keyboard.Key.f13,
-            0x7D : pynput.keyboard.Key.f14,
-            0x7E : pynput.keyboard.Key.f15,
-            0x7F : pynput.keyboard.Key.f16,
-            0x80 : pynput.keyboard.Key.f17,
-            0x81 : pynput.keyboard.Key.f18,
-            0x82 : pynput.keyboard.Key.f19,
-            0x83 : pynput.keyboard.Key.f20,
-            0x84 : pynput.keyboard.Key.f21,
-            0x85 : pynput.keyboard.Key.f22,
-            0x86 : pynput.keyboard.Key.f23,
-            0x87 : pynput.keyboard.Key.f24,
-            0x90 : pynput.keyboard.Key.num_lock,
-            0x91 : pynput.keyboard.Key.scroll_lock,
-            0x90 : pynput.keyboard.Key.num_lock,
-            0x97 : pynput.keyboard.Key.media_previous,
-            0x98 : pynput.keyboard.Key.media_next,
-            0x99 : pynput.keyboard.Key.media_play_pause,
-            0x9B : pynput.keyboard.Key.media_volume_mute,
-            0x9C : pynput.keyboard.Key.media_volume_down,
-            0x9D : pynput.keyboard.Key.media_volume_up,
-            0xA0 : pynput.keyboard.Key.shift_l,
-            0xA1 : pynput.keyboard.Key.shift_r,
-            0xA2 : pynput.keyboard.Key.ctrl_l,
-            0xA3 : pynput.keyboard.Key.ctrl_r,
-            0xA4 : pynput.keyboard.Key.alt_l,
-            0xA5 : pynput.keyboard.Key.alt_r,
-            0xAD : pynput.keyboard.Key.media_volume_mute,
-            0xAE : pynput.keyboard.Key.media_volume_down,
-            0xAF : pynput.keyboard.Key.media_volume_up,
-            0xB0 : pynput.keyboard.Key.media_next,
-            0xB1 : pynput.keyboard.Key.media_previous,
-            0xB3 : pynput.keyboard.Key.media_play_pause
-        }
-        if vk in keydict:
-            return keydict[vk]
-        return pynput.keyboard.KeyCode.from_vk(vk)
             
     def stop(self):
         """主要函数多线程停止函数
@@ -279,7 +265,6 @@ class Worker(QThread):
         self._running = False
         self.listener.stop()
         self.wait()
-
 
 class Setting(QDialog):
     def __init__(self, root):
@@ -304,7 +289,7 @@ class Setting(QDialog):
             self.show()
             self.raise_()
             self.activateWindow()
-            if check().is_task_exists('SnapTap'):
+            if check().is_task_exists(title):
                 self.setting_ui.run_on_windows_startup.setCheckState(Qt.Checked)
                 self.root.create_run_on_system_startup_task(os.path.abspath(sys.argv[0]))
             else:
@@ -361,7 +346,7 @@ class Main(QMainWindow):
         super().__init__()
         # 检查多开状态
         share = QSharedMemory()
-        share.setKey("Snaptap")
+        share.setKey(title)
         if share.attach():
             QMessageBox.critical(self, "错误", "程序已经在运行\n请检查托盘图标")
             sys.exit(3)
@@ -423,11 +408,13 @@ class Main(QMainWindow):
             # 更改主窗口标题
             self.setCentralWidget(self.ui)
             if check().is_admin():
-                self.setWindowTitle("SnapTap [管理员]")
-                if check().is_task_exists('SnapTap'):
-                    self.create_run_on_system_startup_task(os.path.abspath(sys.argv[0]))
+                title_main = f'{title} [管理员]'
             else:
-                self.setWindowTitle("SnapTap [非管理员, 某些情况可能无法生效]")
+                title_main = f'{title} [非管理员, 某些情况可能无法生效]'
+
+            self.setWindowTitle(title_main)
+            if check().is_task_exists(title):
+                self.create_run_on_system_startup_task(os.path.abspath(sys.argv[0]))
 
 
             # 更改警告窗口标题与警告窗口属性
@@ -437,9 +424,8 @@ class Main(QMainWindow):
             
             # 读取配置文件
             self.config = act_config().readConfig()
-            if self.config == {} or self.config.get('left_name', None) == None:
+            if self.config == {} or not check().is_config(self.config):
                 self.reset_config()
-                self.config = act_config().readConfig()
             self.write_val()
             if float(self.config.get('version', '0') != version):
                 self.config['version'] = version
@@ -488,6 +474,7 @@ class Main(QMainWindow):
             
             # 托盘事件
             self.start_action = QAction("启用", self)
+            self.start_action.setIcon(QIcon("ui\\icon.ico"))
             self.show_action = QAction("显示", self)
             self.exit_action = QAction("退出", self)
             self.start_action.triggered.connect(self.toggle)
@@ -498,6 +485,7 @@ class Main(QMainWindow):
             self.menu.addAction(self.exit_action)
             self.tray_icon.setContextMenu(self.menu)
             self.tray_icon.activated.connect(self.on_tray_icon_activated)
+            self.tray_icon.setToolTip(title)
             self.tray_icon.show()
             
             
@@ -526,6 +514,9 @@ class Main(QMainWindow):
     def toggle(self): # 主函数启用/停用切换函数
         """主函数启用/停用切换函数
         """
+        title_ = title
+        if check().is_admin():
+            title_ = f'{title} [管理员]'
         if self.main_worker._running:
             self.main_worker.stop()
             self.ui.start.setText("启用")
@@ -533,17 +524,23 @@ class Main(QMainWindow):
             try:
                 self.setWindowIcon(QIcon("ui\\icon.ico"))
                 self.tray_icon.setIcon(QIcon("ui\\icon.ico"))
+                self.start_action.setIcon(QIcon("ui\\icon.ico"))
+                self.tray_icon.setToolTip(title_)
             except:
                 pass
         else:
             self.config = act_config().readConfig()
             self.write_val()
-            self.main_worker.run(self.config)
+            if not check().is_config(self.config):
+                self.reset_config()
+            self.main_worker.run({'left': int(self.config['left']), 'right': int(self.config['right']), 'up': int(self.config['up']), 'down': int(self.config['down'])})
             self.ui.start.setText("停用")
             self.start_action.setText("停用")
             try:
                 self.setWindowIcon(QIcon("ui\\running.ico"))
                 self.tray_icon.setIcon(QIcon("ui\\running.ico"))
+                self.start_action.setIcon(QIcon("ui\\running.ico"))
+                self.tray_icon.setToolTip(f'''{title_} 已启用\n上: {self.config['up_name']}\n左: {self.config['left_name']}\n下: {self.config['down_name']}\n右: {self.config['right_name']}''')
             except:
                 pass
                 
@@ -593,7 +590,10 @@ class Main(QMainWindow):
             act_config().writeConfig(self.config)
             if self.main_worker._running:
                 self.main_worker.stop()
-                self.main_worker.run(self.config)
+                if not check().is_config(self.config):
+                    self.reset_config()
+                self.main_worker.run({'left': int(self.config['left']), 'right': int(self.config['right']), 'up': int(self.config['up']), 'down': int(self.config['down'])})
+
             
     def clean_config(self, config : dict): # 清理无用配置
         """清理无用配置
@@ -649,8 +649,8 @@ class Main(QMainWindow):
             scheduler = win32com.client.Dispatch('Schedule.Service')
             scheduler.Connect()
             task = scheduler.NewTask(0)
-            task.RegistrationInfo.Description = 'Snaptap开机自启动'
-            task.RegistrationInfo.Author = "SnapTap"
+            task.RegistrationInfo.Description = f'{title}开机自启动'
+            task.RegistrationInfo.Author = title
             task.Principal.LogonType = 3
             task.Principal.RunLevel = 1
             trigger = task.Triggers.Create(9)
@@ -667,7 +667,7 @@ class Main(QMainWindow):
             task.Settings.Hidden = False
             task.Settings.ExecutionTimeLimit = 'PT0S'
             task.Settings.Priority = 7
-            scheduler.GetFolder('\\').RegisterTaskDefinition('\\SnapTap',task,6,None,None,3,None)
+            scheduler.GetFolder('\\').RegisterTaskDefinition(f'\\{title}',task,6,None,None,3,None)
         except:
             pass
         
@@ -679,7 +679,7 @@ class Main(QMainWindow):
         else:
             scheduler = win32com.client.Dispatch('Schedule.Service')
             scheduler.Connect()
-            scheduler.GetFolder('\\').DeleteTask('SnapTap', 0)
+            scheduler.GetFolder('\\').DeleteTask(title, 0)
 
     def closeEvent(self, event): # 覆写窗口关闭逻辑
         """覆写窗口关闭逻辑
