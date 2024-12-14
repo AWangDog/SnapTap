@@ -15,11 +15,11 @@ else:
     for process in psutil.process_iter(attrs=['pid', 'name']):
         try:
             if process.info['name'] == 'SnapTap.exe':
-                pids.append(process.info['pid'])
+                dir_path = f'{tempfile.gettempdir()}\\SnapTap_{process.info['pid']}\\ui\\'
+                if os.path.exists(dir_path) and os.path.isdir(dir_path):
+                   break
         except:
             pass
-    pids.append(os.getpid())
-    dir_path = f'{tempfile.gettempdir()}\\SnapTap_{pids[0]}\\ui\\'
 
 class check():
     """检查类函数
