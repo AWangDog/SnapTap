@@ -30,7 +30,6 @@ python -m nuitka --standalone --onefile --windows-console-mode=disable "--onefil
 + 需要的库
 ``` batch
 pip install PySide6
-pip install pywin32
 pip install pynput
 pip install WinKeyBoard
 pip install psutil
