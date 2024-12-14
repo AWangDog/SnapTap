@@ -1,12 +1,12 @@
-from PySide6.QtWidgets import QApplication, QMessageBox, QLineEdit, QFileDialog, QDialog, QKeySequenceEdit, QCheckBox, QSystemTrayIcon, QMenu, QSizePolicy, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSplitter, QTabWidget, QTableView, QHeaderView, QPushButton
-from PySide6.QtUiTools import QUiLoader
-from PySide6.QtGui import QPixmap, QResizeEvent, QStandardItemModel, QStandardItem, QIcon, QAction, QKeySequence
-from PySide6.QtCore import Qt, QThread, Signal, QEvent, QFile, QSharedMemory
+from PySide6.QtWidgets import *
+from PySide6.QtUiTools import *
+from PySide6.QtGui import *
+from PySide6.QtCore import *
 import sys, shutil, os, configparser, re, json, keyboard, time, ctypes, pynput, win32com.client, subprocess, shlex, warnings, filelock, WinKeyBoard
 
-version = "1.11"
+version = "1.12"
 title = 'SnapTap'
-
+  
 class act_config():
     """配置文件类函数
     """
@@ -44,7 +44,7 @@ class check():
         Returns:
             bool: Config数据是否可用
         """
-        for i in ['left', 'left_name', 'right', 'right_name', 'up', 'up_name', 'down', 'down_name', 'background', 'run']:
+        for i in ['left', 'right', 'up', 'down', 'background', 'run']:
             if config.get(i, 'err') == 'err':
                 return False
         for i in ['left', 'right', 'up', 'down']:
@@ -308,7 +308,17 @@ class Setting(QDialog):
                 self.setting_ui.run.setCheckState(Qt.Checked)
             else:
                 self.setting_ui.run.setCheckState(Qt.Unchecked)
- 
+                
+    def hideEvent(self, event):
+        self.root.ui.setting.setDisabled(False)
+        self.root.setting_action.setDisabled(False)
+        super().hideEvent(event)
+        
+    def showEvent(self, event):
+        self.root.ui.setting.setDisabled(True)
+        self.root.setting_action.setDisabled(True)
+        super().showEvent(event)
+
 class KeyInputEdit(QLineEdit):
     keyPressed = Signal(QKeySequence)
     
@@ -319,24 +329,12 @@ class KeyInputEdit(QLineEdit):
         
     def keyPressEvent(self, event):
         event.ignore()
-        self.key = event.key()
         self.keyCode = event.nativeVirtualKey()
-        self.keyStr = QKeySequence(self.key).toString()
         self.setText(VK_CODE_to_CHAR(self.keyCode))
         self.root.saveConfig()
-        
-    def setTextOfKeyCode(self, keyCode):
-        keyStr = QKeySequence(int(keyCode)).toString()
-        self.setText(keyStr)
-        
+
     def getKeyCode(self):
         return int(self.keyCode)
-    
-    def getKeyName(self):
-        return self.keyStr
-    
-    def getKey(self):
-        return self.key
 
 def VK_CODE_to_CHAR(VK_CODE): return WinKeyBoard.type_conversion.fromVK_CODE(VK_CODE).get_CHAR()
 
@@ -357,7 +355,6 @@ class Main(QMainWindow):
             # 加载ui文件
             try:
                 self.ui = QUiLoader().load('ui\\main.ui')
-                self.warning = QUiLoader().load('ui\\warning.ui')
                 self.setting = QUiLoader().load('ui\\Setting.ui')
                 self.setting = Setting(self)
                 self.tray_icon = QSystemTrayIcon(self)
@@ -376,8 +373,6 @@ class Main(QMainWindow):
                 and type(self.ui.up_layout) == QHBoxLayout
                 and type(self.ui.down_layout) == QHBoxLayout
                 and type(self.ui.setting) == QPushButton
-                and type(self.warning.sure) == QPushButton
-                and type(self.warning.reset) == QPushButton
                 and type(self.setting.setting_ui.run_on_windows_startup) == QCheckBox
                 and type(self.setting.setting_ui.background) == QCheckBox
                 and type(self.setting.setting_ui.run) == QCheckBox
@@ -399,16 +394,17 @@ class Main(QMainWindow):
             # 初始化托盘图标菜单
             self.start_action = QAction("启用", self)
             self.show_action = QAction("显示", self)
+            self.setting_action = QAction("设置", self)
             self.exit_action = QAction("退出", self)
 
             # 设置窗口图标
             try:
                 self.setWindowIcon(QIcon("ui\\icon.ico"))
-                self.warning.setWindowIcon(QIcon("ui\\warning.ico"))
                 self.setting.setWindowIcon(QIcon("ui\\setting.ico"))
                 self.tray_icon.setIcon(QIcon("ui\\icon.ico"))
                 self.start_action.setIcon(QIcon("ui\\off.ico"))
                 self.show_action.setIcon(QIcon("ui\\hide.ico"))
+                self.setting_action.setIcon(QIcon("ui\\setting.ico"))
                 self.exit_action.setIcon(QIcon("ui\\exit.ico"))
             except:
                 pass
@@ -425,12 +421,6 @@ class Main(QMainWindow):
             if check().is_task_exists(title):
                 self.create_run_on_system_startup_task(os.path.abspath(sys.argv[0]))
 
-
-            # 更改警告窗口标题与警告窗口属性
-            self.warning.setWindowTitle("警告")
-            self.warning.setWindowFlags(self.windowFlags() & ~Qt.WindowCloseButtonHint & ~Qt.WindowMinMaxButtonsHint)
-
-            
             # 读取配置文件
             self.config = act_config().readConfig()
             if self.config == {} or not check().is_config(self.config):
@@ -460,21 +450,11 @@ class Main(QMainWindow):
             self.ui.right.keyCode = self.config.get('right', 68)
             self.ui.up.keyCode = self.config.get('up', 87)
             self.ui.down.keyCode = self.config.get('down', 83)
-            self.ui.left.keyStr = self.config.get('left_name', 'A')
-            self.ui.right.keyStr = self.config.get('right_name', 'D')
-            self.ui.up.keyStr = self.config.get('up_name', 'W')
-            self.ui.down.keyStr = self.config.get('down_name', 'S')
             
             
             # 初始化主函数
             self.main_worker = Worker()
-            
-            
-            # warning 事件
-            self.warning.sure.clicked.connect(self.warning_close)
-            self.warning.reset.clicked.connect(self.reset_config)
-            
-            
+
             # setting 事件
             self.setting.setting_ui.run_on_windows_startup.stateChanged.connect(self.run_on_system_startup)
             self.setting.setting_ui.background.stateChanged.connect(self.save_setting)
@@ -484,9 +464,11 @@ class Main(QMainWindow):
             # 托盘事件
             self.start_action.triggered.connect(self.toggle)
             self.show_action.triggered.connect(self.show_toggle)
+            self.setting_action.triggered.connect(self.setting.toggle)
             self.exit_action.triggered.connect(self.exit)
             self.menu.addAction(self.start_action)
             self.menu.addAction(self.show_action)
+            self.menu.addAction(self.setting_action)
             self.menu.addAction(self.exit_action)
             self.tray_icon.setContextMenu(self.menu)
             self.tray_icon.activated.connect(self.on_tray_icon_activated)
@@ -519,9 +501,9 @@ class Main(QMainWindow):
     def toggle(self): # 主函数启用/停用切换函数
         """主函数启用/停用切换函数
         """
-        title_ = title
+        title_ = ''
         if check().is_admin():
-            title_ = f'{title} [管理员]'
+            title_ = f' [管理员]'
         if self.main_worker._running:
             self.main_worker.stop()
             self.ui.start.setText("启用")
@@ -530,7 +512,7 @@ class Main(QMainWindow):
                 self.setWindowIcon(QIcon("ui\\icon.ico"))
                 self.tray_icon.setIcon(QIcon("ui\\icon.ico"))
                 self.start_action.setIcon(QIcon("ui\\off.ico"))
-                self.tray_icon.setToolTip(title_)
+                self.tray_icon.setToolTip(title + title_)
             except:
                 pass
         else:
@@ -545,7 +527,7 @@ class Main(QMainWindow):
                 self.setWindowIcon(QIcon("ui\\running.ico"))
                 self.tray_icon.setIcon(QIcon("ui\\running.ico"))
                 self.start_action.setIcon(QIcon("ui\\on.ico"))
-                self.tray_icon.setToolTip(f'''{title_} 已启用\n上: {self.config['up_name']}\n左: {self.config['left_name']}\n下: {self.config['down_name']}\n右: {self.config['right_name']}''')
+                self.tray_icon.setToolTip(f'''{title} 已启用{title_}''')# \n上: {VK_CODE_to_CHAR(int(self.config['up']))}; 左: {VK_CODE_to_CHAR(int(self.config['left']))}; 下: {VK_CODE_to_CHAR(int(self.config['down']))}\n右: {VK_CODE_to_CHAR(int(self.config['right']))}
             except:
                 pass
                 
@@ -579,19 +561,11 @@ class Main(QMainWindow):
         """
         if reason == QSystemTrayIcon.Trigger:
             self.show_toggle()
-            
-    def warning_close(self): # 警告窗口关闭
-        """警告窗口关闭
-        """
-        self.warning.hide()
-        self.ui.setDisabled(False)
-        self.menu.setDisabled(False)
     
     def reset_config(self): # 重置config.ini
         """重置config.ini
         """
-        self.warning_close()
-        self.config = {'left' : '65', 'left_name' : 'A', 'right' : '68', 'right_name' : 'D', 'up' : '87', 'up_name' : 'W', 'down' :'83', 'down_name' :'S', 'version' : version, 'run' : False, 'background' : False}
+        self.config = {'left' : '65', 'right' : '68', 'up' : '87', 'down' :'83', 'version' : version, 'run' : False, 'background' : False}
         act_config().writeConfig(self.config)
         self.write_val()
 
@@ -612,7 +586,7 @@ class Main(QMainWindow):
         """清理无用配置
         """
         config_ = {}
-        waste = ['running', 'wait']
+        waste = ['running', 'wait', 'left_name', 'right_name', 'up_name', 'down_name']
         for k, v in config.items():
             if not k in waste:
                 config_[k] = v
@@ -702,8 +676,8 @@ class Main(QMainWindow):
     def exit(self, event = 0): # 关闭程序前的动作
         """关闭程序前的动作
         """
-        self.warning.close()
-        self.setting.setting_ui.close()
+        if self.setting.isVisible():
+            self.setting.close()
         if self.main_worker._running:
             self.main_worker.stop()
         self.saveConfig()
