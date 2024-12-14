@@ -4,7 +4,7 @@ from PySide6.QtGui import *
 from PySide6.QtCore import *
 import sys, os, configparser, ctypes, pynput, WinKeyBoard, subprocess, signal, tempfile, psutil
 
-version = "1.13"
+version = "1.14"
 title = 'SnapTap'
 
 dir_path = os.getcwd() + '\\ui\\'
@@ -696,7 +696,6 @@ class Main(QMainWindow):
 </Actions>
 </Task>
 '''
-        
         create_task_command = [
             'schtasks', '/create',
             '/tn', 'SnapTap',
@@ -704,9 +703,9 @@ class Main(QMainWindow):
             '/f'
         ]
         try:
-            subprocess.run(create_task_command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
             with open("task.xml", "w", encoding="utf-16") as xml_file:
                 xml_file.write(xml_content)
+            subprocess.run(create_task_command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
             os.remove("task.xml")
         except:
             pass
