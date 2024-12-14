@@ -20,3 +20,15 @@
 7. Github自动检查更新
 8. 配置切换
 9. 跨平台
+
+## 打包命令
+``` batch
+pyinstaller main.py --onefile --windowed --name SnapTap --icon=ui/icon.ico --hidden-import PySide6.QtXml
+```
++ 需要的库
+``` batch
+pip install PySide6
+pip install pywin32
+pip install pynput
+pip install WinKeyBoard
+```
