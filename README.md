@@ -33,4 +33,5 @@ pip install PySide6
 pip install pywin32
 pip install pynput
 pip install WinKeyBoard
+pip install psutil
 ```
