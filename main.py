@@ -2,39 +2,25 @@ from PySide6.QtWidgets import *
 from PySide6.QtUiTools import *
 from PySide6.QtGui import *
 from PySide6.QtCore import *
-import sys, shutil, os, configparser, re, json, keyboard, time, ctypes, pynput, win32com.client, subprocess, shlex, warnings, filelock, WinKeyBoard
+import sys, os, configparser, ctypes, pynput, WinKeyBoard, subprocess, signal, tempfile, psutil
 
-version = "1.12"
+version = "1.13"
 title = 'SnapTap'
-  
-class act_config():
-    """配置文件类函数
-    """
-    def readConfig(self) -> dict:
-        """读取配置文件
 
-        Returns:
-            dict: 配置参数字典
-        """
+dir_path = os.getcwd() + '\\ui\\'
+if os.path.exists(dir_path) and os.path.isdir(dir_path):
+    pass
+else:
+    pids = []
+    for process in psutil.process_iter(attrs=['pid', 'name']):
         try:
-            config = configparser.ConfigParser()
-            config.read('config.ini')
-            return dict(config['DEFAULT'])
+            if process.info['name'] == 'SnapTap.exe':
+                pids.append(process.info['pid'])
         except:
-            print('配置文件读取失败')
-            return {}
+            pass
+    pids.append(os.getpid())
+    dir_path = f'{tempfile.gettempdir()}\\SnapTap_{pids[0]}\\ui\\'
 
-    def writeConfig(self, config : dict) -> None:
-        """写入配置文件
-
-        Args:
-            config (dict): 配置参数字典
-        """
-        config_parser = configparser.ConfigParser()
-        config_parser['DEFAULT'] = config
-        with open('config.ini', 'w') as configfile:
-            config_parser.write(configfile)
-    
 class check():
     """检查类函数
     """
@@ -147,14 +133,15 @@ class check():
         Returns:
             bool: 任务是否存在
         """
-        scheduler = win32com.client.Dispatch('Schedule.Service')
-        scheduler.Connect()
-        root_folder = scheduler.GetFolder('\\')
-        tasks = root_folder.GetTasks(0)
-        for task in tasks:
-            if task.Name == task_name:
-                return True
-        return False
+        create_task_command = [
+            'schtasks', '/query',
+            '/tn', 'SnapTap'
+        ]
+        try:
+            subprocess.run(create_task_command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
+            return True
+        except subprocess.CalledProcessError as e:
+            return False
 
     def arg_check(self, arg : str, arg_ : str) -> bool:
         """检查参数
@@ -167,6 +154,34 @@ class check():
             bool: 传入参数是否为参数名
         """
         return arg == f'--{arg_}' or arg == f'-{arg_}' or arg == f'/{arg_}' or arg == arg_
+
+class act_config():
+    """配置文件类函数
+    """
+    def readConfig(self) -> dict:
+        """读取配置文件
+
+        Returns:
+            dict: 配置参数字典
+        """
+        try:
+            config = configparser.ConfigParser()
+            config.read('config.ini')
+            return dict(config['DEFAULT'])
+        except:
+            print('配置文件读取失败')
+            return {}
+
+    def writeConfig(self, config : dict) -> None:
+        """写入配置文件
+
+        Args:
+            config (dict): 配置参数字典
+        """
+        config_parser = configparser.ConfigParser()
+        config_parser['DEFAULT'] = config
+        with open('config.ini', 'w') as configfile:
+            config_parser.write(configfile)
 
 class Worker(QThread):
     """主要函数类
@@ -270,7 +285,7 @@ class Setting(QDialog):
     def __init__(self, root):
         super().__init__()
         self.root = root
-        self.setting_ui = QUiLoader().load('ui\\setting.ui', self)
+        self.setting_ui = QUiLoader().load(f'{dir_path}setting.ui', self)
         self.setWindowTitle("设置")
         # 设置窗口大小
         self.setMaximumHeight(84)
@@ -320,13 +335,12 @@ class Setting(QDialog):
         super().showEvent(event)
 
 class KeyInputEdit(QLineEdit):
-    keyPressed = Signal(QKeySequence)
-    
     def __init__(self, root):
         super().__init__()
         self.setReadOnly(True)
         self.root = root
-        
+
+
     def keyPressEvent(self, event):
         event.ignore()
         self.keyCode = event.nativeVirtualKey()
@@ -335,6 +349,13 @@ class KeyInputEdit(QLineEdit):
 
     def getKeyCode(self):
         return int(self.keyCode)
+
+    def event(self, event):
+        if event.type() in [QEvent.ContextMenu, QEvent.InputMethodQuery]:
+            event.ignore()
+            return False
+        super().event(event)
+        return True
 
 def VK_CODE_to_CHAR(VK_CODE): return WinKeyBoard.type_conversion.fromVK_CODE(VK_CODE).get_CHAR()
 
@@ -349,19 +370,19 @@ class Main(QMainWindow):
         share.setKey(title)
         if share.attach():
             QMessageBox.critical(self, "错误", "程序已经在运行\n请检查托盘图标")
-            sys.exit(3)
+            self.exit(1)
         
         if share.create(1):
             # 加载ui文件
             try:
-                self.ui = QUiLoader().load('ui\\main.ui')
-                self.setting = QUiLoader().load('ui\\Setting.ui')
+                self.ui = QUiLoader().load(f'{dir_path}main.ui')
+                self.setting = QUiLoader().load(f'{dir_path}Setting.ui')
                 self.setting = Setting(self)
                 self.tray_icon = QSystemTrayIcon(self)
                 self.menu = QMenu()
-            except:
+            except Exception as e:
                 QMessageBox.critical(self, "错误", "加载 ui 文件失败！\n请重装软件或检查ui是否存在！")
-                sys.exit(1)
+                self.exit(1)
 
 
             # 检查ui控件类型
@@ -382,9 +403,8 @@ class Main(QMainWindow):
                 err = True
             if err:
                 QMessageBox.critical(self, "错误", "初始化失败！(ui文件损坏)\n请重装软件或检查ui文件！")
-                sys.exit(2)        
-                
-            
+                self.exit(1)       
+
             # 初始化按键输入框
             self.ui.left = KeyInputEdit(self)
             self.ui.right = KeyInputEdit(self)
@@ -399,13 +419,13 @@ class Main(QMainWindow):
 
             # 设置窗口图标
             try:
-                self.setWindowIcon(QIcon("ui\\icon.ico"))
-                self.setting.setWindowIcon(QIcon("ui\\setting.ico"))
-                self.tray_icon.setIcon(QIcon("ui\\icon.ico"))
-                self.start_action.setIcon(QIcon("ui\\off.ico"))
-                self.show_action.setIcon(QIcon("ui\\hide.ico"))
-                self.setting_action.setIcon(QIcon("ui\\setting.ico"))
-                self.exit_action.setIcon(QIcon("ui\\exit.ico"))
+                self.setWindowIcon(QIcon(f'{dir_path}icon.ico'))
+                self.setting.setWindowIcon(QIcon(f'{dir_path}setting.ico'))
+                self.tray_icon.setIcon(QIcon(f'{dir_path}icon.ico'))
+                self.start_action.setIcon(QIcon(f'{dir_path}off.ico'))
+                self.show_action.setIcon(QIcon(f'{dir_path}hide.ico'))
+                self.setting_action.setIcon(QIcon(f'{dir_path}setting.ico'))
+                self.exit_action.setIcon(QIcon(f'{dir_path}exit.ico'))
             except:
                 pass
 
@@ -509,9 +529,9 @@ class Main(QMainWindow):
             self.ui.start.setText("启用")
             self.start_action.setText("启用")
             try:
-                self.setWindowIcon(QIcon("ui\\icon.ico"))
-                self.tray_icon.setIcon(QIcon("ui\\icon.ico"))
-                self.start_action.setIcon(QIcon("ui\\off.ico"))
+                self.setWindowIcon(QIcon(f'{dir_path}icon.ico'))
+                self.tray_icon.setIcon(QIcon(f'{dir_path}icon.ico'))
+                self.start_action.setIcon(QIcon(f'{dir_path}off.ico'))
                 self.tray_icon.setToolTip(title + title_)
             except:
                 pass
@@ -524,9 +544,9 @@ class Main(QMainWindow):
             self.ui.start.setText("停用")
             self.start_action.setText("停用")
             try:
-                self.setWindowIcon(QIcon("ui\\running.ico"))
-                self.tray_icon.setIcon(QIcon("ui\\running.ico"))
-                self.start_action.setIcon(QIcon("ui\\on.ico"))
+                self.setWindowIcon(QIcon(f'{dir_path}running.ico'))
+                self.tray_icon.setIcon(QIcon(f'{dir_path}running.ico'))
+                self.start_action.setIcon(QIcon(f'{dir_path}on.ico'))
                 self.tray_icon.setToolTip(f'''{title} 已启用{title_}''')# \n上: {VK_CODE_to_CHAR(int(self.config['up']))}; 左: {VK_CODE_to_CHAR(int(self.config['left']))}; 下: {VK_CODE_to_CHAR(int(self.config['down']))}\n右: {VK_CODE_to_CHAR(int(self.config['right']))}
             except:
                 pass
@@ -539,7 +559,7 @@ class Main(QMainWindow):
             self.setting.hide()
             self.show_action.setText("显示")
             try:
-                self.show_action.setIcon(QIcon("ui\\show.ico"))
+                self.show_action.setIcon(QIcon(f'{dir_path}show.ico'))
             except:
                 pass
         else:
@@ -549,7 +569,7 @@ class Main(QMainWindow):
             self.raise_()
             self.activateWindow()
             try:
-                self.show_action.setIcon(QIcon("ui\\hide.ico"))
+                self.show_action.setIcon(QIcon(f'{dir_path}hide.ico'))
             except:
                 pass
               
@@ -628,29 +648,66 @@ class Main(QMainWindow):
         Args:
             path (_type_): 程序路径
         """
+        xml_content = rf'''<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+<RegistrationInfo>
+    <Author>SnapTap</Author>
+    <Description>SnapTap开机自启动</Description>
+    <URI>\SnapTap</URI>
+</RegistrationInfo>
+<Triggers>
+    <LogonTrigger>
+    <Enabled>true</Enabled>
+    </LogonTrigger>
+</Triggers>
+<Principals>
+    <Principal id="Author">
+    <LogonType>InteractiveToken</LogonType>
+    <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+</Principals>
+<Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>false</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+    <StopOnIdleEnd>true</StopOnIdleEnd>
+    <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <DisallowStartOnRemoteAppSession>false</DisallowStartOnRemoteAppSession>
+    <UseUnifiedSchedulingEngine>true</UseUnifiedSchedulingEngine>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+</Settings>
+<Actions Context="Author">
+    <Exec>
+    <Command>{path}</Command>
+    <Arguments>--run --background</Arguments>
+    <WorkingDirectory>{os.path.dirname(path)}</WorkingDirectory>
+    </Exec>
+</Actions>
+</Task>
+'''
+        
+        create_task_command = [
+            'schtasks', '/create',
+            '/tn', 'SnapTap',
+            '/xml', "task.xml",
+            '/f'
+        ]
         try:
-            scheduler = win32com.client.Dispatch('Schedule.Service')
-            scheduler.Connect()
-            task = scheduler.NewTask(0)
-            task.RegistrationInfo.Description = f'{title}开机自启动'
-            task.RegistrationInfo.Author = title
-            task.Principal.LogonType = 3
-            task.Principal.RunLevel = 1
-            trigger = task.Triggers.Create(9)
-            trigger.Enabled = True
-            exec_command = task.Actions.Create(0)
-            exec_command.Path = path
-            exec_command.Arguments = '--run --background'
-            exec_command.WorkingDirectory = os.path.dirname(path)
-            task.Settings.DisallowStartIfOnBatteries = False
-            task.Settings.StopIfGoingOnBatteries = True
-            task.Settings.AllowHardTerminate = True
-            task.Settings.StartWhenAvailable = False
-            task.Settings.Enabled = True
-            task.Settings.Hidden = False
-            task.Settings.ExecutionTimeLimit = 'PT0S'
-            task.Settings.Priority = 7
-            scheduler.GetFolder('\\').RegisterTaskDefinition(f'\\{title}',task,6,None,None,3,None)
+            subprocess.run(create_task_command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
+            with open("task.xml", "w", encoding="utf-16") as xml_file:
+                xml_file.write(xml_content)
+            os.remove("task.xml")
         except:
             pass
         
@@ -660,9 +717,15 @@ class Main(QMainWindow):
         if self.setting.setting_ui.run_on_windows_startup.isChecked():
             self.create_run_on_system_startup_task(os.path.abspath(sys.argv[0]))
         else:
-            scheduler = win32com.client.Dispatch('Schedule.Service')
-            scheduler.Connect()
-            scheduler.GetFolder('\\').DeleteTask(title, 0)
+            create_task_command = [
+                'schtasks', '/delete',
+                '/tn', 'SnapTap',
+                '/f'
+            ]
+            try:
+                subprocess.run(create_task_command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
+            except:
+                pass
 
     def closeEvent(self, event): # 覆写窗口关闭逻辑
         """覆写窗口关闭逻辑
@@ -670,19 +733,23 @@ class Main(QMainWindow):
         Args:
             event (event): event
         """
-        self.exit(1)
+        self.exit(2)
         super().closeEvent(event)
     
     def exit(self, event = 0): # 关闭程序前的动作
         """关闭程序前的动作
         """
+        if event == 1:
+            pid = os.getpid()
+            os.kill(pid, signal.SIGTERM)
         if self.setting.isVisible():
             self.setting.close()
         if self.main_worker._running:
             self.main_worker.stop()
         self.saveConfig()
         if event == 0:
-            sys.exit()
+            pid = os.getpid()
+            os.kill(pid, signal.SIGTERM)
 
 if __name__ == '__main__':
     # 启动程序
