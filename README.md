@@ -25,7 +25,7 @@
 pip install nuitka
 ```
 ``` batch
-python -m nuitka --standalone --onefile --windows-console-mode=disable "--onefile-tempdir-spec={TEMP}\SnapTap_{PID}" --mingw64 --output-dir=out --enable-plugin=pyside6 --windows-icon-from-ico=ui\icon.ico --windows-product-version=1.13.0 --remove-output --windows-uac-admin --include-data-dir=ui=ui --product-name=SnapTap --file-description=SnapTap --output-filename=SnapTap main.py
+python -m nuitka --standalone --onefile --windows-console-mode=disable "--onefile-tempdir-spec={TEMP}\SnapTap_{PID}" --mingw64 --output-dir=out --enable-plugin=pyside6 --windows-icon-from-ico=ui\icon.ico --windows-product-version=1.14.0 --remove-output --windows-uac-admin --include-data-dir=ui=ui --product-name=SnapTap --file-description=SnapTap --output-filename=SnapTap main.py
 ```
 + 需要的库
 ``` batch
